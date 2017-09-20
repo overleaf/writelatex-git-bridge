@@ -13,6 +13,9 @@ import uk.ac.ic.wlgitbridge.bridge.db.DBStore;
 import uk.ac.ic.wlgitbridge.bridge.db.sqlite.SqliteDBStore;
 import uk.ac.ic.wlgitbridge.bridge.repo.FSGitRepoStore;
 import uk.ac.ic.wlgitbridge.bridge.repo.RepoStore;
+import uk.ac.ic.wlgitbridge.bridge.repo.RepoStoreConfig;
+import uk.ac.ic.wlgitbridge.bridge.snapshot.NetSnapshotApi;
+import uk.ac.ic.wlgitbridge.bridge.snapshot.SnapshotApi;
 import uk.ac.ic.wlgitbridge.bridge.swap.store.SwapStore;
 import uk.ac.ic.wlgitbridge.git.servlet.WLGitServlet;
 import uk.ac.ic.wlgitbridge.snapshot.base.SnapshotAPIRequest;
@@ -44,27 +47,30 @@ public class GitBridgeServer {
     private String rootGitDirectoryPath;
     private String apiBaseURL;
 
-    public GitBridgeServer(
-            Config config
-    ) throws ServletException {
+    public GitBridgeServer(Config config) throws ServletException {
         org.eclipse.jetty.util.log.Log.setLog(new NullLogger());
         this.port = config.getPort();
         this.rootGitDirectoryPath = config.getRootGitDirectory();
-        RepoStore repoStore = new FSGitRepoStore(rootGitDirectoryPath);
+        RepoStore repoStore = new FSGitRepoStore(
+                rootGitDirectoryPath,
+                config.getRepoStore().flatMap(RepoStoreConfig::getMaxFileSize)
+        );
         DBStore dbStore = new SqliteDBStore(
                 Paths.get(
                         repoStore.getRootDirectory().getAbsolutePath()
                 ).resolve(".wlgb").resolve("wlgb.db").toFile()
         );
         SwapStore swapStore = SwapStore.fromConfig(config.getSwapStore());
+        SnapshotApi snapshotApi = new NetSnapshotApi();
         bridge = Bridge.make(
+                config,
                 repoStore,
                 dbStore,
                 swapStore,
-                config.getSwapJob()
+                snapshotApi
         );
         jettyServer = new Server(port);
-        configureJettyServer(config);
+        configureJettyServer(config, repoStore, snapshotApi);
         SnapshotAPIRequest.setBasicAuth(
                 config.getUsername(),
                 config.getPassword()
@@ -84,7 +90,8 @@ public class GitBridgeServer {
             bridge.checkDB();
             jettyServer.start();
             bridge.startBackgroundJobs();
-            Log.info(Util.getServiceName() + "-Git Bridge server started");
+            Log.info(
+                    Util.getServiceName() + "-Git Bridge server started");
             Log.info("Listening on port: " + port);
             Log.info("Bridged to: " + apiBaseURL);
             Log.info("Postback base URL: " + Util.getPostbackURL());
@@ -105,11 +112,13 @@ public class GitBridgeServer {
     }
 
     private void configureJettyServer(
-            Config config
+            Config config,
+            RepoStore repoStore,
+            SnapshotApi snapshotApi
     ) throws ServletException {
         HandlerCollection handlers = new HandlerList();
         handlers.addHandler(initApiHandler());
-        handlers.addHandler(initGitHandler(config));
+        handlers.addHandler(initGitHandler(config, repoStore, snapshotApi));
         jettyServer.setHandler(handlers);
     }
 
@@ -130,12 +139,14 @@ public class GitBridgeServer {
     }
 
     private Handler initGitHandler(
-            Config config
+            Config config,
+            RepoStore repoStore,
+            SnapshotApi snapshotApi
     ) throws ServletException {
         final ServletContextHandler servletContextHandler =
                 new ServletContextHandler(ServletContextHandler.SESSIONS);
         if (config.isUsingOauth2()) {
-            Filter filter = new Oauth2Filter(config.getOauth2());
+            Filter filter = new Oauth2Filter(snapshotApi, config.getOauth2());
             servletContextHandler.addFilter(
                     new FilterHolder(filter),
                     "/*",
@@ -147,6 +158,7 @@ public class GitBridgeServer {
                 new ServletHolder(
                         new WLGitServlet(
                                 servletContextHandler,
+                                repoStore,
                                 bridge
                         )
                 ),
@@ -159,9 +171,8 @@ public class GitBridgeServer {
 
     private Handler initResourceHandler() {
         ResourceHandler resourceHandler = new FileHandler(bridge);
-        resourceHandler.setResourceBase(
-                new File(rootGitDirectoryPath, ".wlgb/atts").getAbsolutePath()
-        );
+        resourceHandler.setResourceBase(new File(
+                rootGitDirectoryPath, ".wlgb/atts").getAbsolutePath());
         return resourceHandler;
     }
 
