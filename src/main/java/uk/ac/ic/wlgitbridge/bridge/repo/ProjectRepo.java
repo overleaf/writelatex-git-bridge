@@ -1,5 +1,6 @@
 package uk.ac.ic.wlgitbridge.bridge.repo;
 
+import org.eclipse.jgit.lib.Repository;
 import uk.ac.ic.wlgitbridge.data.filestore.GitDirectoryContents;
 import uk.ac.ic.wlgitbridge.data.filestore.RawFile;
 import uk.ac.ic.wlgitbridge.git.exception.GitUserException;
@@ -16,20 +17,14 @@ public interface ProjectRepo {
 
     String getProjectName();
 
-    void initRepo(
-            RepoStore repoStore
-    ) throws IOException;
+    void initRepo(RepoStore repoStore) throws IOException;
 
-    void useExistingRepository(
-            RepoStore repoStore
-    ) throws IOException;
+    void useExistingRepository(RepoStore repoStore) throws IOException;
 
-    Map<String, RawFile> getFiles(
-    ) throws IOException, GitUserException;
+    Map<String, RawFile> getFiles() throws IOException, GitUserException;
 
     Collection<String> commitAndGetMissing(
-            GitDirectoryContents gitDirectoryContents
-    ) throws IOException;
+            GitDirectoryContents gitDirectoryContents) throws IOException;
 
     void runGC() throws IOException;
 
@@ -37,4 +32,5 @@ public interface ProjectRepo {
 
     File getProjectDir();
 
+    Repository getJGitRepository();
 }

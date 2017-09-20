@@ -15,12 +15,12 @@ import uk.ac.ic.wlgitbridge.git.handler.hook.exception.WrongBranchException;
 import uk.ac.ic.wlgitbridge.git.util.RepositoryObjectTreeWalker;
 import uk.ac.ic.wlgitbridge.snapshot.push.exception.InternalErrorException;
 import uk.ac.ic.wlgitbridge.snapshot.push.exception.OutOfDateException;
-import uk.ac.ic.wlgitbridge.snapshot.push.exception.SnapshotPostException;
 import uk.ac.ic.wlgitbridge.util.Log;
 
 import java.io.IOException;
 import java.util.Collection;
 import java.util.Iterator;
+import java.util.Optional;
 
 /**
  * Created by Winston on 03/11/14.
@@ -33,8 +33,10 @@ import java.util.Iterator;
 public class WriteLatexPutHook implements PreReceiveHook {
 
     private final Bridge bridge;
+
     private final String hostname;
-    private final Credential oauth2;
+
+    private final Optional<Credential> oauth2;
 
     /**
      * The constructor to use, which provides the hook with the {@link Bridge},
@@ -47,7 +49,7 @@ public class WriteLatexPutHook implements PreReceiveHook {
     public WriteLatexPutHook(
             Bridge bridge,
             String hostname,
-            Credential oauth2
+            Optional<Credential> oauth2
     ) {
         this.bridge = bridge;
         this.hostname = hostname;
@@ -112,7 +114,7 @@ public class WriteLatexPutHook implements PreReceiveHook {
     }
 
     private void handleReceiveCommand(
-            Credential oauth2,
+            Optional<Credential> oauth2,
             Repository repository,
             ReceiveCommand receiveCommand
     ) throws IOException, GitUserException {
@@ -121,8 +123,7 @@ public class WriteLatexPutHook implements PreReceiveHook {
         bridge.push(
                 oauth2,
                 repository.getWorkTree().getName(),
-                getPushedDirectoryContents(repository,
-                        receiveCommand),
+                getPushedDirectoryContents(repository, receiveCommand),
                 getOldDirectoryContents(repository),
                 hostname
         );

@@ -41,6 +41,7 @@ import java.util.*;
 public class GitProjectRepo implements ProjectRepo {
 
     private final String projectName;
+
     private Optional<Repository> repository;
 
     public GitProjectRepo(String projectName) {
@@ -55,9 +56,7 @@ public class GitProjectRepo implements ProjectRepo {
     }
 
     @Override
-    public void initRepo(
-            RepoStore repoStore
-    ) throws IOException {
+    public void initRepo(RepoStore repoStore) throws IOException {
         initRepositoryField(repoStore);
         Preconditions.checkState(repository.isPresent());
         Repository repo = this.repository.get();
@@ -66,9 +65,7 @@ public class GitProjectRepo implements ProjectRepo {
     }
 
     @Override
-    public void useExistingRepository(
-            RepoStore repoStore
-    ) throws IOException {
+    public void useExistingRepository(RepoStore repoStore) throws IOException {
         initRepositoryField(repoStore);
         Preconditions.checkState(repository.isPresent());
         Preconditions.checkState(
@@ -87,8 +84,7 @@ public class GitProjectRepo implements ProjectRepo {
 
     @Override
     public Collection<String> commitAndGetMissing(
-            GitDirectoryContents contents
-    ) throws IOException {
+            GitDirectoryContents contents) throws IOException {
         try {
             return doCommitAndGetMissing(contents);
         } catch (GitAPIException e) {
@@ -199,6 +195,7 @@ public class GitProjectRepo implements ProjectRepo {
         }
     }
 
+    @Override
     public Repository getJGitRepository() {
         return repository.get();
     }
@@ -259,7 +256,8 @@ public class GitProjectRepo implements ProjectRepo {
                 name,
                 contents.getDirectory().getAbsolutePath()
         );
-        Util.deleteInDirectoryApartFrom(contents.getDirectory(), ".git");
+        Util.deleteInDirectoryApartFrom(
+                contents.getDirectory(), ".git");
         return missingFiles;
     }
 
