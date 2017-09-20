@@ -1,18 +1,19 @@
 package uk.ac.ic.wlgitbridge.bridge.resource;
 
-import com.ning.http.client.AsyncCompletionHandler;
-import com.ning.http.client.HttpResponseBodyPart;
-import com.ning.http.client.Response;
+import com.ning.http.client.AsyncHttpClient;
 import uk.ac.ic.wlgitbridge.bridge.db.DBStore;
 import uk.ac.ic.wlgitbridge.data.filestore.RawFile;
 import uk.ac.ic.wlgitbridge.data.filestore.RepositoryFile;
-import uk.ac.ic.wlgitbridge.snapshot.base.Request;
+import uk.ac.ic.wlgitbridge.git.exception.SizeLimitExceededException;
+import uk.ac.ic.wlgitbridge.io.http.ning.NingHttpClient;
+import uk.ac.ic.wlgitbridge.io.http.ning.NingHttpClientFacade;
 import uk.ac.ic.wlgitbridge.snapshot.exception.FailedConnectionException;
 import uk.ac.ic.wlgitbridge.util.Log;
 
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.ExecutionException;
 
 /**
@@ -22,8 +23,15 @@ public class UrlResourceCache implements ResourceCache {
 
     private final DBStore dbStore;
 
-    public UrlResourceCache(DBStore dbStore) {
+    private final NingHttpClientFacade http;
+
+    UrlResourceCache(DBStore dbStore, NingHttpClientFacade http) {
         this.dbStore = dbStore;
+        this.http = http;
+    }
+
+    public UrlResourceCache(DBStore dbStore) {
+        this(dbStore, new NingHttpClient(new AsyncHttpClient()));
     }
 
     @Override
@@ -32,13 +40,14 @@ public class UrlResourceCache implements ResourceCache {
             String url,
             String newPath,
             Map<String, RawFile> fileTable,
-            Map<String, byte[]> fetchedUrls
-    ) throws IOException {
+            Map<String, byte[]> fetchedUrls,
+            Optional<Long> maxFileSize
+    ) throws IOException, SizeLimitExceededException {
         String path = dbStore.getPathForURLInProject(projectName, url);
         byte[] contents;
         if (path == null) {
             path = newPath;
-            contents = fetch(projectName, url, path);
+            contents = fetch(projectName, url, path, maxFileSize);
             fetchedUrls.put(url, contents);
         } else {
             Log.info("Found (" + projectName + "): " + url);
@@ -54,7 +63,7 @@ public class UrlResourceCache implements ResourceCache {
                                     + "File url is: "
                                     + url
                     );
-                    contents = fetch(projectName, url, path);
+                    contents = fetch(projectName, url, path, maxFileSize);
                 } else {
                     contents = rawFile.getContents();
                 }
@@ -66,55 +75,35 @@ public class UrlResourceCache implements ResourceCache {
     private byte[] fetch(
             String projectName,
             final String url,
-            String path
-    ) throws FailedConnectionException {
+            String path,
+            Optional<Long> maxFileSize
+    ) throws FailedConnectionException, SizeLimitExceededException {
         byte[] contents;
         Log.info("GET -> " + url);
         try {
-            contents = Request.httpClient.prepareGet(url).execute(
-                    new AsyncCompletionHandler<byte[]>() {
-
-                ByteArrayOutputStream bytes = new ByteArrayOutputStream();
-
-                @Override
-                public STATE onBodyPartReceived(
-                        HttpResponseBodyPart bodyPart
-                ) throws Exception {
-                    bytes.write(bodyPart.getBodyPartBytes());
-                    return STATE.CONTINUE;
+            contents = http.get(url, hs -> {
+                List<String> contentLengths
+                        = hs.getHeaders().get("Content-Length");
+                if (!maxFileSize.isPresent()) {
+                    return true;
                 }
-
-                @Override
-                public byte[] onCompleted(
-                        Response response
-                ) throws Exception {
-                    byte[] data = bytes.toByteArray();
-                    bytes.close();
-                    Log.info(
-                            response.getStatusCode()
-                                    + " "
-                                    + response.getStatusText()
-                                    + " ("
-                                    + data.length
-                                    + "B) -> "
-                                    + url
-                    );
-                    return data;
+                if (contentLengths.isEmpty()) {
+                    return true;
                 }
-
-            }).get();
-        } catch (InterruptedException e) {
-            Log.warn(
-                    "Interrupted when fetching project: "  +
-                            projectName  +
-                            ", url: " +
-                            url +
-                            ", path: " +
-                            path,
-                    e
-            );
-            throw new FailedConnectionException();
+                long contentLength = Long.parseLong(contentLengths.get(0));
+                long maxFileSize_ = maxFileSize.get();
+                if (contentLength <= maxFileSize_) {
+                    return true;
+                }
+                throw new SizeLimitExceededException(
+                        Optional.of(path), contentLength, maxFileSize_
+                );
+            });
         } catch (ExecutionException e) {
+            Throwable cause = e.getCause();
+            if (cause instanceof SizeLimitExceededException) {
+                throw (SizeLimitExceededException) cause;
+            }
             Log.warn(
                     "ExecutionException when fetching project: " +
                             projectName +
@@ -125,6 +114,10 @@ public class UrlResourceCache implements ResourceCache {
                     e
             );
             throw new FailedConnectionException();
+        }
+        if (maxFileSize.isPresent() && contents.length > maxFileSize.get()) {
+            throw new SizeLimitExceededException(
+                    Optional.of(path), contents.length, maxFileSize.get());
         }
         dbStore.addURLIndexForProject(projectName, url, path);
         return contents;
