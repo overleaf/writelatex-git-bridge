@@ -162,7 +162,8 @@ public class SwapJobImpl implements SwapJob {
         Preconditions.checkNotNull(projName, "projName was null");
         Log.info("Evicting project: {}", projName);
         try (LockGuard __ = lock.lockGuard(projName)) {
-            repoStore.gcProject(projName);
+            // NOTE: removed temporarily, behaving badly in production
+            // repoStore.gcProject(projName);
             long[] sizePtr = new long[1];
             try (InputStream blob = repoStore.bzip2Project(projName, sizePtr)) {
                 swapStore.upload(projName, blob, sizePtr[0]);
