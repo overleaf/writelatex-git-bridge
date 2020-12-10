@@ -1,7 +1,16 @@
 package uk.ac.ic.wlgitbridge.bridge.db;
 
+import uk.ac.ic.wlgitbridge.bridge.db.postgres.PostgresConfig;
+import uk.ac.ic.wlgitbridge.bridge.db.postgres.PostgresDBStore;
+import uk.ac.ic.wlgitbridge.bridge.db.postgres.PostgresOptions;
+import uk.ac.ic.wlgitbridge.bridge.db.sqlite.SqliteDBStore;
+import uk.ac.ic.wlgitbridge.bridge.repo.RepoStore;
+import uk.ac.ic.wlgitbridge.util.Log;
+
+import java.nio.file.Paths;
 import java.sql.Timestamp;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Created by winston on 20/08/2016.
@@ -35,4 +44,21 @@ public interface DBStore {
      */
     void setLastAccessedTime(String projectName, Timestamp time);
 
+    static DBStore fromConfig(Optional<DatabaseConfig> maybeConfig, RepoStore repoStore) {
+      if (
+        maybeConfig.isPresent() &&
+        maybeConfig.get().getDatabaseType() == DatabaseConfig.DatabaseType.Postgres
+      ) {
+        Log.info("Database: connect to postgres");
+        PostgresOptions options = ((PostgresConfig)maybeConfig.get()).getOptions();
+        return new PostgresDBStore(options);
+      } else {
+        Log.info("Database: connect to sqlite");
+        return new SqliteDBStore(
+          Paths.get(
+            repoStore.getRootDirectory().getAbsolutePath()
+          ).resolve(".wlgb").resolve("wlgb.db").toFile()
+        );
+      }
+    }
 }
