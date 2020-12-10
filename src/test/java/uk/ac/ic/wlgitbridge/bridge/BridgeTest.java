@@ -63,6 +63,7 @@ public class BridgeTest {
                         null,
                         null,
                         null,
+                        null,
                         null),
                 lock,
                 repoStore,
