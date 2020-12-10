@@ -98,8 +98,9 @@ public class ConfigTest {
                 "  },\n" +
                 "  \"repoStore\": null,\n" +
                 "  \"swapStore\": null,\n" +
-                "  \"swapJob\": null\n" +
-                "}";
+                "  \"swapJob\": null,\n" +
+                "  \"database\": null\n" +
+          "}";
         assertEquals(
                 "sanitised config did not hide sensitive fields",
                 expected,

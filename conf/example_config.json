@@ -21,6 +21,17 @@
         "awsSecret": "asdf",
         "s3BucketName": "com.overleaf.testbucket"
     },
+    "database": {
+        "type": "postgres",
+        "options": {
+            "url": "jdbc:postgresql://postgres_v2/gitbridge",
+            "username": "sharelatex",
+            "password": "sharelatex",
+            "poolInitialSize": 2,
+            "poolMaxTotal": 8,
+            "poolMaxWaitMillis": 20000
+        }
+    },
     "swapJob": {
         "minProjects": 50,
         "lowGiB": 128,
