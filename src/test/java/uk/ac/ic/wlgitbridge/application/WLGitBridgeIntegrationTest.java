@@ -162,12 +162,14 @@ public class WLGitBridgeIntegrationTest {
     @Rule
     public TemporaryFolder folder = new TemporaryFolder();
 
+    public static Connection connection;
+
     private MockSnapshotServer server;
     private GitBridgeApp wlgb;
     private File dir;
     // set env-var "TEST_DB_MODE", either "postgres" or "sqlite"
     private static String databaseMode;
-    private Map<String, String> postgresConfig = new HashMap<String, String>() {{
+    private static Map<String, String> postgresConfig = new HashMap<String, String>() {{
       put("url", "jdbc:postgresql://postgres_v2/gitbridge_test");
       put("username", "sharelatex");
       put("password", "sharelatex");
@@ -175,13 +177,6 @@ public class WLGitBridgeIntegrationTest {
 
     private void resetPostgresDatabase() throws Exception {
       try {
-        Class.forName("org.postgresql.Driver");
-        Connection connection = DriverManager
-          .getConnection(
-            postgresConfig.get("url"),
-            postgresConfig.get("username"),
-            postgresConfig.get("password")
-          );
         Statement statement = connection.createStatement();
         statement.execute("delete from url_index_store;");
         statement.execute("delete from projects;");
@@ -197,7 +192,21 @@ public class WLGitBridgeIntegrationTest {
     public static void before() throws Exception {
       databaseMode = System.getenv("TEST_DB_MODE");
       Log.info("Test database mode: " + databaseMode);
-    }
+      if ("postgres".equals(databaseMode)) {
+        try {
+          Class.forName("org.postgresql.Driver");
+          connection = DriverManager
+            .getConnection(
+              postgresConfig.get("url"),
+              postgresConfig.get("username"),
+              postgresConfig.get("password")
+            );
+        } catch (Exception e) {
+          Log.error("Error connecting to Postgres: {}", e.getMessage());
+          throw e;
+        }
+      }
+  }
 
     @Before
     public void setUp() throws Exception {
