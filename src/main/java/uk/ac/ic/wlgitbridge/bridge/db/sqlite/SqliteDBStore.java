@@ -32,6 +32,11 @@ public class SqliteDBStore implements DBStore {
     }
 
     @Override
+    public void close() {
+      return;
+    }
+
+    @Override
     public int getNumProjects() {
         return query(new GetNumProjects());
     }

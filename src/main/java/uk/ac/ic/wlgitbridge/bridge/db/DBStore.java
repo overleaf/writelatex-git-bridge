@@ -35,6 +35,8 @@ public interface DBStore {
 
     int getNumUnswappedProjects();
 
+    void close();
+
     ProjectState getProjectState(String projectName);
 
     /**

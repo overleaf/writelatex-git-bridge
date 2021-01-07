@@ -243,7 +243,7 @@ public class Bridge {
      *
      * It is also used by the tests.
      */
-    void doShutdown() {
+    public void doShutdown() {
         Log.info("Shutdown received.");
         Log.info("Stopping SwapJob");
         swapJob.stop();
@@ -251,6 +251,8 @@ public class Bridge {
         gcJob.stop();
         Log.info("Waiting for projects");
         lock.lockAll();
+        Log.info("Closing database connections");
+        dbStore.close();
         Log.info("Bye");
     }
 
