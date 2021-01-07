@@ -13,32 +13,39 @@ import java.util.List;
 
 public class PostgresDBStore implements DBStore {
 
+  private final PostgresOptions options;
   private final BasicDataSource pool;
 
-  public PostgresDBStore(PostgresOptions options) {
+  public PostgresDBStore(PostgresOptions postgresOptions) {
+    options = postgresOptions;
     Log.info("Initialize PostgresDBStore");
     try {
-      pool = new BasicDataSource();
-      pool.setDriverClassName("org.postgresql.Driver");
-      pool.setUrl(options.getUrl());
-      pool.setUsername(options.getUsername());
-      pool.setPassword(options.getPassword());
-      int poolInitialSize = options.getPoolInitialSize();
-      int poolMaxTotal = options.getPoolMaxTotal();
-      int poolMaxWaitMillis = options.getPoolMaxWaitMillis();
-      if (poolInitialSize < 1) {
-        throw new RuntimeException("Invalid poolInitialSize: " + poolInitialSize);
-      }
-      if (poolMaxTotal < poolInitialSize) {
-        throw new RuntimeException("Invalid poolMaxTotal and poolInitialSize: " + poolMaxTotal + ", " + poolInitialSize);
-      }
-      pool.setInitialSize(poolInitialSize);
-      pool.setMaxTotal(poolMaxTotal);
-      pool.setMaxWaitMillis(poolMaxWaitMillis);
+      pool = makeConnectionPool();
     } catch (Exception e) {
       Log.error("Error connecting to Postgres: {}", e.getMessage());
       throw new DBInitException(e);
     }
+  }
+
+  public BasicDataSource makeConnectionPool() {
+    BasicDataSource dataSource = new BasicDataSource();
+    dataSource.setDriverClassName("org.postgresql.Driver");
+    dataSource.setUrl(options.getUrl());
+    dataSource.setUsername(options.getUsername());
+    dataSource.setPassword(options.getPassword());
+    int poolInitialSize = options.getPoolInitialSize();
+    int poolMaxTotal = options.getPoolMaxTotal();
+    int poolMaxWaitMillis = options.getPoolMaxWaitMillis();
+    if (poolInitialSize < 1) {
+      throw new RuntimeException("Invalid poolInitialSize: " + poolInitialSize);
+    }
+    if (poolMaxTotal < poolInitialSize) {
+      throw new RuntimeException("Invalid poolMaxTotal and poolInitialSize: " + poolMaxTotal + ", " + poolInitialSize);
+    }
+    dataSource.setInitialSize(poolInitialSize);
+    dataSource.setMaxTotal(poolMaxTotal);
+    dataSource.setMaxWaitMillis(poolMaxWaitMillis);
+    return dataSource;
   }
 
   @Override
