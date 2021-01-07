@@ -4,7 +4,9 @@ import com.google.api.client.auth.oauth2.Credential;
 import org.eclipse.jgit.errors.RepositoryNotFoundException;
 import uk.ac.ic.wlgitbridge.application.config.Config;
 import uk.ac.ic.wlgitbridge.bridge.db.DBStore;
+import uk.ac.ic.wlgitbridge.bridge.db.DatabaseConfig;
 import uk.ac.ic.wlgitbridge.bridge.db.ProjectState;
+import uk.ac.ic.wlgitbridge.bridge.db.postgres.PostgresDBStore;
 import uk.ac.ic.wlgitbridge.bridge.db.sqlite.SqliteDBStore;
 import uk.ac.ic.wlgitbridge.bridge.gc.GcJob;
 import uk.ac.ic.wlgitbridge.bridge.gc.GcJobImpl;
@@ -21,6 +23,7 @@ import uk.ac.ic.wlgitbridge.bridge.swap.job.SwapJobImpl;
 import uk.ac.ic.wlgitbridge.bridge.swap.store.S3SwapStore;
 import uk.ac.ic.wlgitbridge.bridge.swap.store.SwapStore;
 import uk.ac.ic.wlgitbridge.data.CandidateSnapshot;
+import uk.ac.ic.wlgitbridge.data.PostgresProjectLockImpl;
 import uk.ac.ic.wlgitbridge.data.ProjectLockImpl;
 import uk.ac.ic.wlgitbridge.data.filestore.GitDirectoryContents;
 import uk.ac.ic.wlgitbridge.data.filestore.RawDirectory;
@@ -174,9 +177,21 @@ public class Bridge {
             SwapStore swapStore,
             SnapshotApi snapshotApi
     ) {
-        ProjectLock lock = new ProjectLockImpl((int threads) ->
-                Log.info("Waiting for " + threads + " projects...")
-        );
+        ProjectLock lock;
+        if (
+          config.getDatabase().isPresent() &&
+          config.getDatabase().get().getDatabaseType() == DatabaseConfig.DatabaseType.Postgres
+        ) {
+          Log.info("Using postgres lock implementation");
+          lock = new PostgresProjectLockImpl(((PostgresDBStore)dbStore).makeConnectionPool(), (int threads) ->
+            Log.info("Waiting for " + threads + " projects...")
+          );
+        } else {
+          Log.info("Using default lock implementation");
+          lock = new ProjectLockImpl((int threads) ->
+                  Log.info("Waiting for " + threads + " projects...")
+          );
+        }
         return new Bridge(
                 config,
                 lock,
