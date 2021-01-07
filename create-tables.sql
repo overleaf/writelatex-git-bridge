@@ -24,4 +24,9 @@ BEGIN;
     ON public.url_index_store
     USING btree
     (project_name, path);
+
+  CREATE TABLE IF NOT EXISTS public.project_locks (
+    "project_name" varchar(100) NOT NULL DEFAULT ''::character varying,
+    CONSTRAINT project_locks_pkey PRIMARY KEY (project_name)
+  );
 COMMIT;
