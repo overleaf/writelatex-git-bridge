@@ -1159,7 +1159,7 @@ public class WLGitBridgeIntegrationTest {
             "\"options\": {\"url\": \"" + postgresConfig.get("url") + "\", " +
             "\"username\": \""+ postgresConfig.get("username") +"\", " +
             "\"password\": \""+ postgresConfig.get("password") +"\", " +
-            "\"poolInitialSize\": 2, \"poolMaxTotal\": 8, \"poolMaxWaitMillis\": 1000}}";
+            "\"poolInitialSize\": 4, \"poolMaxTotal\": 8, \"poolMaxWaitMillis\": 1000}}";
         }
         cfgStr += "}\n";
         writer.print(cfgStr);
