@@ -724,18 +724,18 @@ public class WLGitBridgeIntegrationTest {
         File rootGitDir = new File(wlgb.config.getRootGitDirectory());
         File testProj1ServerDir = new File(rootGitDir, "testproj1");
         File testProj2ServerDir = new File(rootGitDir, "testproj2");
-        File testProj1Dir = gitClone("testproj1", 33874, dir);
+        File testProj1Dir = gitClone("testproj1", 33874, dir);   // clone 1
         assertTrue(testProj1ServerDir.exists());
         assertFalse(testProj2ServerDir.exists());
-        gitClone("testproj2", 33874, dir);
-        while (testProj1ServerDir.exists());
+        gitClone("testproj2", 33874, dir);                       // clone 2
+        while (testProj1ServerDir.exists());                     // wait for 1 to disappear (swap)
         assertFalse(testProj1ServerDir.exists());
-        assertTrue(testProj2ServerDir.exists());
+        assertTrue(testProj2ServerDir.exists());                 // only 1 exists
         FileUtils.deleteDirectory(testProj1Dir);
-        gitClone("testproj1", 33874, dir);
-        while (testProj2ServerDir.exists());
+        gitClone("testproj1", 33874, dir);                       // clone 1
+        while (testProj2ServerDir.exists());                     // wait for 2 to disappear (swap)
         assertTrue(testProj1ServerDir.exists());
-        assertFalse(testProj2ServerDir.exists());
+        assertFalse(testProj2ServerDir.exists());                // only 2 exists
     }
 
     private static final List<String> EXPECTED_OUT_PUSH_SUBMODULE = Arrays.asList(
