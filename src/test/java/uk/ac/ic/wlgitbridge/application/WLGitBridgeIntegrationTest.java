@@ -21,6 +21,7 @@ import org.asynchttpclient.*;
 import org.eclipse.jgit.api.errors.GitAPIException;
 import org.junit.*;
 import org.junit.rules.TemporaryFolder;
+import org.junit.runners.MethodSorters;
 import uk.ac.ic.wlgitbridge.bridge.db.DBInitException;
 import uk.ac.ic.wlgitbridge.bridge.db.postgres.PostgresDBStore;
 import uk.ac.ic.wlgitbridge.bridge.swap.job.SwapJobConfig;
@@ -49,6 +50,8 @@ import static org.junit.Assert.*;
 /**
  * Created by Winston on 11/01/15.
  */
+
+@FixMethodOrder(MethodSorters.NAME_ASCENDING)
 public class WLGitBridgeIntegrationTest {
 
     private Runtime runtime = Runtime.getRuntime();
