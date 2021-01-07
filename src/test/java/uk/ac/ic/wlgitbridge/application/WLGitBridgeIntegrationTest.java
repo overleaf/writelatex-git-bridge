@@ -182,6 +182,7 @@ public class WLGitBridgeIntegrationTest {
         Statement statement = connection.createStatement();
         statement.execute("delete from url_index_store;");
         statement.execute("delete from projects;");
+        statement.execute("delete from project_locks;");
         statement.close();
       } catch (Exception e) {
         Log.error("Error connecting to Postgres: {}", e.getMessage());
