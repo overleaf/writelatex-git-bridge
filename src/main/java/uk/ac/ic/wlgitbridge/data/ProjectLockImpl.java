@@ -35,8 +35,8 @@ public class ProjectLockImpl implements ProjectLock {
 
     @Override
     public void lockForProject(String projectName) {
-        getLockForProjectName(projectName).lock();
         rlock.lock();
+        getLockForProjectName(projectName).lock();
     }
 
     @Override
