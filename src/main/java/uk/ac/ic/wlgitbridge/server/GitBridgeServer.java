@@ -104,6 +104,7 @@ public class GitBridgeServer {
     public void stop() {
         try {
             jettyServer.stop();
+            bridge.doShutdown();
         } catch (Exception e) {
             Log.error("Failed to stop Jetty", e);
         }

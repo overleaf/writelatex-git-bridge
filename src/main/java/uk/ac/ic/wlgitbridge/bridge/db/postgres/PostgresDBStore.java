@@ -42,6 +42,16 @@ public class PostgresDBStore implements DBStore {
   }
 
   @Override
+  public void close() {
+    try {
+      pool.close();
+    } catch (Exception e) {
+      throw new RuntimeException("Postgres error while closing", e);
+    }
+    return;
+  }
+
+  @Override
   public int getNumProjects() {
     try (
       Connection connection = pool.getConnection();

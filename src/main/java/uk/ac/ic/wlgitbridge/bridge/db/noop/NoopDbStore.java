@@ -9,6 +9,9 @@ import java.util.List;
 public class NoopDbStore implements DBStore {
 
     @Override
+    public void close() { return; }
+
+    @Override
     public int getNumProjects() {
         return 0;
     }
