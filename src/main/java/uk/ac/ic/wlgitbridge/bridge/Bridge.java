@@ -378,34 +378,32 @@ public class Bridge {
             String migratedFromID = doc.getMigratedFromID();
             if (migratedFromID != null) {
                 Log.info("[{}] Has a migratedFromId: {}", projectName, migratedFromID);
-                try (LockGuard __ = lock.lockGuard(migratedFromID)) {
-                    ProjectState sourceState = dbStore.getProjectState(migratedFromID);
-                    switch (sourceState) {
-                        case NOT_PRESENT:
-                            // Normal init-repo
-                            Log.info("[{}] migrated-from project not present, proceed as normal",
-                                 projectName
-                            );
-                            repo = repoStore.initRepo(projectName);
-                            break;
-                        case SWAPPED:
-                            // Swap back and then copy
-                            swapJob.restore(migratedFromID);
-                            /* Fallthrough */
-                        default:
-                            // Copy data, and set version to zero
-                            Log.info("[{}] Init from other project: {}",
-                                projectName,
-                                migratedFromID
-                            );
-                            repo = repoStore.initRepoFromExisting(projectName, migratedFromID);
-                            dbStore.setLatestVersionForProject(migratedFromID, 0);
-                            dbStore.setLastAccessedTime(
-                                    migratedFromID,
-                                    Timestamp.valueOf(LocalDateTime.now())
+                ProjectState sourceState = dbStore.getProjectState(migratedFromID);
+                switch (sourceState) {
+                    case NOT_PRESENT:
+                        // Normal init-repo
+                        Log.info("[{}] migrated-from project not present, proceed as normal",
+                             projectName
+                        );
+                        repo = repoStore.initRepo(projectName);
+                        break;
+                    case SWAPPED:
+                        // Swap back and then copy
+                        swapJob.restore(migratedFromID);
+                        /* Fallthrough */
+                    default:
+                        // Copy data, and set version to zero
+                        Log.info("[{}] Init from other project: {}",
+                            projectName,
+                            migratedFromID
+                        );
+                        repo = repoStore.initRepoFromExisting(projectName, migratedFromID);
+                        dbStore.setLatestVersionForProject(migratedFromID, 0);
+                        dbStore.setLastAccessedTime(
+                                migratedFromID,
+                                Timestamp.valueOf(LocalDateTime.now())
 
-                            );
-                    }
+                        );
                 }
                 break;
             } else {
