@@ -57,21 +57,33 @@ public class PostgresProjectLockImpl implements ProjectLock {
     return getProjectLock(projectName);
   }
 
+  private synchronized void storeLock(String projectName, Lock lock) {
+    projectLocks.put(projectName, lock);
+  }
+
+  private synchronized Lock retrieveLock(String projectName) {
+    return projectLocks.get(projectName);
+  }
+
+  private synchronized void removeLock(String projectName) {
+    projectLocks.remove(projectName);
+  }
+
   @Override
   public void lockForProject(String projectName) {
     rlock.lock();
     Lock lock = getLockForProjectName(projectName);
     lock.lock();
-    projectLocks.put(projectName, lock);
+    storeLock(projectName, lock);
   }
 
   @Override
   public void unlockForProject(String projectName) {
-    Lock lock = projectLocks.get(projectName);
+    Lock lock = retrieveLock(projectName);
     if (lock == null) {
       return;
     }
-    projectLocks.remove(projectName);
+    removeLock(projectName);
     lock.unlock();
     rlock.unlock();
     if (waiting) {
