@@ -16,12 +16,12 @@ public class PostgresProjectLockImpl implements ProjectLock {
   private final Map<String, Lock> projectLocks;
 
   // An app-level lock that tracks all current "operations", or,
-  // threads that currently hold a lock. This allows us to wait on
-  // the wlock, effectively waiting for all outstanding operations to
-  // complete, before shutting down
-  private final ReentrantReadWriteLock rwlock;
-  private final Lock rlock;
-  private final ReentrantReadWriteLock.WriteLock wlock;
+  // threads that currently hold a lock on the activityLock. This allows
+  // us to wait on the blockingLock, effectively waiting for all
+  // outstanding operations to complete, before shutting down
+  private final ReentrantReadWriteLock globalLock;
+  private final Lock activityLock;
+  private final ReentrantReadWriteLock.WriteLock blockingLock;
 
   // Postgres connection pool
   private final BasicDataSource pool;
@@ -31,9 +31,9 @@ public class PostgresProjectLockImpl implements ProjectLock {
 
   public PostgresProjectLockImpl(BasicDataSource connectionPool) {
     projectLocks = new HashMap<String, Lock>();
-    rwlock = new ReentrantReadWriteLock();
-    rlock = rwlock.readLock();
-    wlock = rwlock.writeLock();
+    globalLock = new ReentrantReadWriteLock();
+    activityLock = globalLock.readLock();
+    blockingLock = globalLock.writeLock();
     pool = connectionPool;
     waiting = false;
   }
@@ -71,7 +71,7 @@ public class PostgresProjectLockImpl implements ProjectLock {
 
   @Override
   public void lockForProject(String projectName) {
-    rlock.lock();
+    activityLock.lock();
     Lock lock = getLockForProjectName(projectName);
     lock.lock();
     storeLock(projectName, lock);
@@ -85,14 +85,14 @@ public class PostgresProjectLockImpl implements ProjectLock {
     }
     removeLock(projectName);
     lock.unlock();
-    rlock.unlock();
+    activityLock.unlock();
     if (waiting) {
       trySignal();
     }
   }
 
   private void trySignal() {
-    int threads = rwlock.getReadLockCount();
+    int threads = globalLock.getReadLockCount();
     if (waiter != null && threads > 0) {
       waiter.threadsRemaining(threads);
     }
@@ -104,7 +104,7 @@ public class PostgresProjectLockImpl implements ProjectLock {
   public void lockAll() {
     waiting = true;
     trySignal();
-    wlock.lock();
+    blockingLock.lock();
     try {
       pool.close();
     } catch (Exception e) {
