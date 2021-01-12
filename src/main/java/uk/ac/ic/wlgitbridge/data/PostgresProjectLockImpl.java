@@ -80,11 +80,10 @@ public class PostgresProjectLockImpl implements ProjectLock {
   @Override
   public void unlockForProject(String projectName) {
     Lock lock = retrieveLock(projectName);
-    if (lock == null) {
-      return;
+    if (lock != null) {
+      lock.unlock();
+      removeLock(projectName);
     }
-    removeLock(projectName);
-    lock.unlock();
     activityLock.unlock();
     if (waiting) {
       trySignal();
