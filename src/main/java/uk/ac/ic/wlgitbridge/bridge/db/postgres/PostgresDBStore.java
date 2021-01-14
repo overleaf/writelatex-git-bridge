@@ -271,4 +271,65 @@ public class PostgresDBStore implements DBStore {
       throw new RuntimeException("Postgres query error", e);
     }
   };
+
+  @Override
+  public void swap(String projectName, String compressionMethod) {
+    try (
+      Connection connection = pool.getConnection();
+      PreparedStatement statement = connection.prepareStatement(
+        "UPDATE projects\n" +
+          "SET last_accessed = NULL,\n" +
+          "    swap_time = NOW(),\n" +
+          "    restore_time = NULL,\n" +
+          "    swap_compression = ?\n" +
+          " WHERE name = ?;\n"
+      )) {
+      statement.setString(1, compressionMethod);
+      statement.setString(2, projectName);
+      statement.executeUpdate();
+    } catch (Exception e) {
+      throw new RuntimeException("Postgres query error", e);
+    }
+  }
+
+  @Override
+  public void restore(String projectName) {
+    try (
+      Connection connection = pool.getConnection();
+      PreparedStatement statement = connection.prepareStatement(
+        "UPDATE projects\n" +
+          "SET last_accessed = NOW(),\n" +
+          "    swap_time = NULL,\n" +
+          "    restore_time = NOW(),\n" +
+          "    swap_compression = NULL\n" +
+          " WHERE name = ?;\n"
+      )) {
+      statement.setString(1, projectName);
+      statement.executeUpdate();
+    } catch (Exception e) {
+      throw new RuntimeException("Postgres query error", e);
+    }
+  }
+
+  @Override
+  public String getSwapCompression(String projectName) {
+    try (
+      Connection connection = pool.getConnection();
+      PreparedStatement statement = connection.prepareStatement(
+        "SELECT swap_compression \n"
+          + "FROM projects \n"
+          + "WHERE name = ?;\n")) {
+      statement.setString(1, projectName);
+      try (ResultSet rs = statement.executeQuery()) {
+        if (rs.next()) {
+          String compression = rs.getString(1);
+          return compression;
+        } else {
+          return null;
+        }
+      }
+    } catch (Exception e) {
+      throw new RuntimeException("Postgres query error", e);
+    }
+  }
 }
