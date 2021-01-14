@@ -104,6 +104,21 @@ public class SqliteDBStore implements DBStore {
         update(new SetProjectLastAccessedTime(projectName, lastAccessed));
     }
 
+    @Override
+    public void swap(String projectName, String compressionMethod) {
+      update(new UpdateSwap(projectName, compressionMethod));
+    }
+
+    @Override
+    public void restore(String projectName) {
+      update(new UpdateRestore(projectName));
+    }
+
+    @Override
+    public String getSwapCompression(String projectName) {
+        return query(new GetSwapCompression(projectName));
+    }
+
     private Connection openConnectionTo(File dbFile) {
         File parentDir = dbFile.getParentFile();
         if (!parentDir.exists() && !parentDir.mkdirs()) {
@@ -136,7 +151,10 @@ public class SqliteDBStore implements DBStore {
                 new CreateProjectsTableSQLUpdate(),
                 new CreateProjectsIndexLastAccessed(),
                 new CreateURLIndexStoreSQLUpdate(),
-                new CreateIndexURLIndexStore()
+                new CreateIndexURLIndexStore(),
+                new ProjectsAddSwapTime(),
+                new ProjectsAddSwapCompression(),
+                new ProjectsAddRestoreTime()
         ).forEach(this::update);
         /* In the case of needing to change the schema, we need to check that
            ProjectsAddLastAccessed didn't just fail */
