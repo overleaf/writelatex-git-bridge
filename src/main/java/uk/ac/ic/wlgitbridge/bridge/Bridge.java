@@ -183,7 +183,7 @@ public class Bridge {
           config.getDatabase().get().getDatabaseType() == DatabaseConfig.DatabaseType.Postgres
         ) {
           Log.info("Using postgres lock implementation");
-          lock = new PostgresProjectLockImpl(((PostgresDBStore)dbStore).makeConnectionPool(), (int threads) ->
+          lock = new PostgresProjectLockImpl(((PostgresDBStore)dbStore), (int threads) ->
             Log.info("Waiting for " + threads + " projects...")
           );
         } else {
@@ -343,14 +343,28 @@ public class Bridge {
             Optional<Credential> oauth2,
             String projectName
     ) throws IOException, GitUserException {
+        try {
+            dbStore.prepareRequest();
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
         try (LockGuard __ = lock.lockGuard(projectName)) {
-            Optional<GetDocResult> maybeDoc = snapshotAPI.getDoc(oauth2, projectName);
-            if (!maybeDoc.isPresent()) {
-                throw new RepositoryNotFoundException(projectName);
+            // TODO: try/catch, and tell dbStore whether it should
+            //       commit or roll back when unlock is called?
+            try {
+                Optional<GetDocResult> maybeDoc = snapshotAPI.getDoc(oauth2, projectName);
+                if (!maybeDoc.isPresent()) {
+                    throw new RepositoryNotFoundException(projectName);
+                }
+                GetDocResult doc = maybeDoc.get();
+                Log.info("[{}] Updating repository", projectName);
+                ProjectRepo repo = getUpdatedRepoCritical(oauth2, projectName, doc);
+                dbStore.setRequestEnd("commit");
+                return repo;
+            } catch (Throwable t) {
+                dbStore.setRequestEnd("rollback");
+                throw t;
             }
-            GetDocResult doc = maybeDoc.get();
-            Log.info("[{}] Updating repository", projectName);
-            return getUpdatedRepoCritical(oauth2, projectName, doc);
         }
     }
 

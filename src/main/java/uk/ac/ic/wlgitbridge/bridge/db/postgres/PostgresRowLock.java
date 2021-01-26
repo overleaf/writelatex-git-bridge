@@ -10,42 +10,19 @@ import java.util.concurrent.locks.Lock;
 public class PostgresRowLock implements Lock {
 
   private String projectName;
-  private Connection connection;
+  private PostgresDBStore dbStore;
   private boolean isLocking = false;
 
-  public PostgresRowLock(String projectName, Connection conn) {
+  public PostgresRowLock(String projectName, PostgresDBStore dbStore) {
     this.projectName = projectName;
-    this.connection = conn;
+    this.dbStore = dbStore;
   }
 
   @Override
   public void lock() {
     try {
-      connection.setAutoCommit(true);
-      try (
-        PreparedStatement statement = this.connection.prepareStatement(
-          "INSERT into project_locks (project_name) values (?) ON CONFLICT DO NOTHING;"
-        )
-      ) {
-        statement.setString(1, this.projectName);
-        statement.execute();
-      }
-      try (Statement statement = this.connection.createStatement()) {
-        statement.execute("set lock_timeout to 59999;");
-      }
-      this.connection.setAutoCommit(false);
+      dbStore.takeLock(projectName);
       this.isLocking = true;
-      try (
-        PreparedStatement statement = this.connection.prepareStatement(
-          "SELECT * from project_locks" +
-            " WHERE project_name = ?" +
-            " FOR UPDATE;"
-        );
-        ) {
-        statement.setString(1, this.projectName);
-        statement.executeQuery();
-      }
-      return;
     } catch (Exception e) {
       throw new RuntimeException("Postgres query error while locking " + this.projectName, e);
     }
@@ -57,12 +34,9 @@ public class PostgresRowLock implements Lock {
       throw new RuntimeException("unlock called, but lock is not taken");
     }
     try {
-      this.connection.commit();
-      this.connection.setAutoCommit(true);
-      this.connection.close();
-      return;
+      dbStore.releaseLock(projectName);
     } catch (Exception e) {
-      throw new RuntimeException("Postgres query error", e);
+      throw new RuntimeException("Postgres query error while releasing lock", e);
     }
   }
 

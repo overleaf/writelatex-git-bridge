@@ -32,6 +32,16 @@ public class SqliteDBStore implements DBStore {
     }
 
     @Override
+    public void prepareRequest() throws SQLException {
+        return;
+    }
+
+    @Override
+    public void endRequest(RequestEnd end) throws SQLException {
+        return;
+    }
+
+    @Override
     public void close() {
       return;
     }
@@ -94,6 +104,11 @@ public class SqliteDBStore implements DBStore {
     @Override
     public int getNumUnswappedProjects() {
         return query(new GetNumUnswappedProjects());
+    }
+
+    @Override
+    public void setRequestEnd(String end) {
+        return;
     }
 
     @Override

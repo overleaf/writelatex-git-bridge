@@ -1,6 +1,7 @@
 package uk.ac.ic.wlgitbridge.data;
 
 import org.apache.commons.dbcp2.BasicDataSource;
+import uk.ac.ic.wlgitbridge.bridge.db.postgres.PostgresDBStore;
 import uk.ac.ic.wlgitbridge.bridge.db.postgres.PostgresRowLock;
 import uk.ac.ic.wlgitbridge.bridge.lock.ProjectLock;
 
@@ -24,29 +25,28 @@ public class PostgresProjectLockImpl implements ProjectLock {
   private final ReentrantReadWriteLock.WriteLock blockingLock;
 
   // Postgres connection pool
-  private final BasicDataSource pool;
+  private final PostgresDBStore dbStore;
 
   private LockAllWaiter waiter;
   private boolean waiting;
 
-  public PostgresProjectLockImpl(BasicDataSource connectionPool) {
+  public PostgresProjectLockImpl(PostgresDBStore postgresDbStore) {
     projectLocks = new HashMap<String, Lock>();
     globalLock = new ReentrantReadWriteLock();
     activityLock = globalLock.readLock();
     blockingLock = globalLock.writeLock();
-    pool = connectionPool;
+    dbStore = postgresDbStore;
     waiting = false;
   }
 
-  public PostgresProjectLockImpl(BasicDataSource connectionPool, LockAllWaiter waiter) {
-    this(connectionPool);
+  public PostgresProjectLockImpl(PostgresDBStore postgresDbStore, LockAllWaiter waiter) {
+    this(postgresDbStore);
     setWaiter(waiter);
   }
 
   private PostgresRowLock getProjectLock(String projectName) {
     try {
-      Connection connection = pool.getConnection();
-      PostgresRowLock lock = new PostgresRowLock(projectName, connection);
+      PostgresRowLock lock = new PostgresRowLock(projectName, dbStore);
       return lock;
     } catch (Exception e) {
       throw new RuntimeException("Postgres query error", e);
@@ -104,11 +104,6 @@ public class PostgresProjectLockImpl implements ProjectLock {
     waiting = true;
     trySignal();
     blockingLock.lock();
-    try {
-      pool.close();
-    } catch (Exception e) {
-      throw new RuntimeException(e); // TODO: better log
-    }
   }
 
   public void setWaiter(LockAllWaiter waiter) {
