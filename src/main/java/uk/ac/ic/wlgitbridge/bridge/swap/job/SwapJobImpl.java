@@ -218,16 +218,18 @@ public class SwapJobImpl implements SwapJob {
      */
     @Override
     public void restore(String projName) throws IOException {
-        try (InputStream zipped = swapStore.openDownloadStream(projName)) {
-            repoStore.unbzip2Project(
-                    projName,
-                    zipped
-            );
-            swapStore.remove(projName);
-            dbStore.setLastAccessedTime(
-                    projName,
-                    Timestamp.valueOf(LocalDateTime.now())
-            );
+        try (LockGuard __ = lock.lockGuard(projName)) {
+            try (InputStream zipped = swapStore.openDownloadStream(projName)) {
+                repoStore.unbzip2Project(
+                        projName,
+                        zipped
+                );
+                swapStore.remove(projName);
+                dbStore.setLastAccessedTime(
+                        projName,
+                        Timestamp.valueOf(LocalDateTime.now())
+                );
+            }
         }
     }
 
