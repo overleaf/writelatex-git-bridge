@@ -3,7 +3,6 @@ package uk.ac.ic.wlgitbridge.bridge.db.noop;
 import uk.ac.ic.wlgitbridge.bridge.db.DBStore;
 import uk.ac.ic.wlgitbridge.bridge.db.ProjectState;
 
-import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.util.List;
 
@@ -11,16 +10,6 @@ public class NoopDbStore implements DBStore {
 
     @Override
     public void close() { return; }
-
-    @Override
-    public void prepareRequest() throws SQLException {
-        return;
-    }
-
-    @Override
-    public void endRequest(RequestEnd end) throws SQLException {
-        return;
-    }
 
     @Override
     public int getNumProjects() {
@@ -65,11 +54,6 @@ public class NoopDbStore implements DBStore {
     @Override
     public int getNumUnswappedProjects() {
         return 0;
-    }
-
-    @Override
-    public void setRequestEnd(String end) {
-        return;
     }
 
     @Override

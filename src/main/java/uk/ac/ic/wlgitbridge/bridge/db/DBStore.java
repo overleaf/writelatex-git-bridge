@@ -8,7 +8,6 @@ import uk.ac.ic.wlgitbridge.bridge.repo.RepoStore;
 import uk.ac.ic.wlgitbridge.util.Log;
 
 import java.nio.file.Paths;
-import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.util.List;
 import java.util.Optional;
@@ -17,12 +16,6 @@ import java.util.Optional;
  * Created by winston on 20/08/2016.
  */
 public interface DBStore {
-
-    enum RequestEnd { Commit, Rollback };
-
-    void prepareRequest() throws SQLException;
-
-    void endRequest(RequestEnd end) throws SQLException;
 
     int getNumProjects();
 
@@ -47,8 +40,6 @@ public interface DBStore {
     String getSwapCompression(String projectName);
 
     int getNumUnswappedProjects();
-
-    void setRequestEnd(String end);
 
     void close();
 

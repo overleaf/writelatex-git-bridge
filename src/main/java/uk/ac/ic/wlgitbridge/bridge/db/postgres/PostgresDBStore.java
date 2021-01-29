@@ -15,8 +15,6 @@ public class PostgresDBStore implements DBStore {
 
   private final PostgresOptions options;
   private final BasicDataSource pool;
-  private ThreadLocal<Connection> connectionBox = new ThreadLocal();
-  private ThreadLocal<RequestEnd> requestEndBox = new ThreadLocal();
 
   public PostgresDBStore(PostgresOptions postgresOptions) {
     options = postgresOptions;
@@ -29,7 +27,6 @@ public class PostgresDBStore implements DBStore {
     }
   }
 
-  // TODO: make private
   public BasicDataSource makeConnectionPool() {
     BasicDataSource dataSource = new BasicDataSource();
     dataSource.setDriverClassName("org.postgresql.Driver");
@@ -52,43 +49,6 @@ public class PostgresDBStore implements DBStore {
   }
 
   @Override
-  public synchronized void prepareRequest() throws SQLException {
-    Log.info("Preparing database for request");
-    // TODO:
-    //   - turn off autocommit
-    //   - start transaction
-    Connection conn = pool.getConnection();
-    conn.setAutoCommit(true);
-    try (Statement statement = conn.createStatement()) {
-      statement.execute("set lock_timeout to 59999;");
-    }
-    conn.setAutoCommit(false);
-    connectionBox.set(conn);
-    requestEndBox.set(null);
-  }
-
-  // TODO: should we commit or rollback?
-  @Override
-  public synchronized void endRequest(RequestEnd end) throws SQLException {
-    Log.info("Ending request on database");
-    Connection conn = connectionBox.get();
-    if (end == RequestEnd.Commit) {
-      conn.commit();
-    } else if (end == RequestEnd.Rollback) {
-      conn.rollback();
-    }
-    conn.close();
-  }
-
-  private Connection getConnection() {
-    Connection connection = connectionBox.get();
-    if (connection == null) {
-      throw new RuntimeException("Tried to get connection, but not initialized");
-    }
-    return connectionBox.get();
-  }
-
-  @Override
   public void close() {
     try {
       pool.close();
@@ -99,9 +59,9 @@ public class PostgresDBStore implements DBStore {
   }
 
   @Override
-  public synchronized int getNumProjects() {
+  public int getNumProjects() {
     try (
-      Connection connection = getConnection();
+      Connection connection = pool.getConnection();
       Statement statement = connection.createStatement();
          ResultSet rs = statement.executeQuery("SELECT count(*) from projects;\n")) {
       if (rs.next()) {
@@ -116,9 +76,9 @@ public class PostgresDBStore implements DBStore {
   };
 
   @Override
-  public synchronized List<String> getProjectNames() {
+  public List<String> getProjectNames() {
     try (
-      Connection connection = getConnection();
+      Connection connection = pool.getConnection();
       Statement statement = connection.createStatement();
          ResultSet rs = statement.executeQuery("SELECT name from projects;\n")) {
       List<String> result = new ArrayList<String>();
@@ -132,9 +92,9 @@ public class PostgresDBStore implements DBStore {
   };
 
   @Override
-  public synchronized void setLatestVersionForProject(String project, int versionID) {
+  public void setLatestVersionForProject(String project, int versionID) {
     try (
-      Connection connection = getConnection();
+      Connection connection = pool.getConnection();
       PreparedStatement statement = connection.prepareStatement(
         "INSERT INTO "
            + "projects (name, version_id, last_accessed) "
@@ -150,9 +110,9 @@ public class PostgresDBStore implements DBStore {
   };
 
   @Override
-  public synchronized int getLatestVersionForProject(String project) {
+  public int getLatestVersionForProject(String project) {
     try (
-      Connection connection = getConnection();
+      Connection connection = pool.getConnection();
       PreparedStatement statement = connection.prepareStatement(
         "SELECT version_id from projects where name = ?;")) {
       statement.setString(1, project);
@@ -170,9 +130,9 @@ public class PostgresDBStore implements DBStore {
   };
 
   @Override
-  public synchronized void addURLIndexForProject(String projectName, String url, String path) {
+  public void addURLIndexForProject(String projectName, String url, String path) {
     try (
-      Connection connection = getConnection();
+      Connection connection = pool.getConnection();
       PreparedStatement statement = connection.prepareStatement(
       "INSERT INTO url_index_store(" +
          "project_name, " +
@@ -192,7 +152,7 @@ public class PostgresDBStore implements DBStore {
   };
 
   @Override
-  public synchronized void deleteFilesForProject(String project, String... files) {
+  public void deleteFilesForProject(String project, String... files) {
     if (files.length == 0) {
       return;
     }
@@ -207,7 +167,7 @@ public class PostgresDBStore implements DBStore {
     }
     queryBuilder.append(");\n");
     try (
-      Connection connection = getConnection();
+      Connection connection = pool.getConnection();
       PreparedStatement statement = connection.prepareStatement(queryBuilder.toString())) {
       statement.setString(1, project);
       for (int i = 0; i < files.length; i++) {
@@ -220,9 +180,9 @@ public class PostgresDBStore implements DBStore {
   };
 
   @Override
-  public synchronized String getPathForURLInProject(String projectName, String url) {
+  public String getPathForURLInProject(String projectName, String url) {
     try (
-      Connection connection = getConnection();
+      Connection connection = pool.getConnection();
       PreparedStatement statement = connection.prepareStatement(
         "SELECT path "
           + "FROM url_index_store "
@@ -244,9 +204,9 @@ public class PostgresDBStore implements DBStore {
   };
 
   @Override
-  public synchronized String getOldestUnswappedProject() {
+  public String getOldestUnswappedProject() {
     try (
-      Connection connection = getConnection();
+      Connection connection = pool.getConnection();
       Statement statement = connection.createStatement()) {
       try (ResultSet rs = statement.executeQuery(
           "SELECT name FROM projects" +
@@ -265,9 +225,9 @@ public class PostgresDBStore implements DBStore {
   };
 
   @Override
-  public synchronized int getNumUnswappedProjects() {
+  public int getNumUnswappedProjects() {
     try (
-      Connection connection = getConnection();
+      Connection connection = pool.getConnection();
       Statement statement = connection.createStatement()) {
       try (ResultSet rs = statement.executeQuery(
           "SELECT COUNT(*)\n" +
@@ -286,9 +246,9 @@ public class PostgresDBStore implements DBStore {
   };
 
   @Override
-  public synchronized ProjectState getProjectState(String projectName) {
+  public ProjectState getProjectState(String projectName) {
     try (
-      Connection connection = getConnection();
+      Connection connection = pool.getConnection();
       PreparedStatement statement = connection.prepareStatement(
         "SELECT last_accessed\n" +
           " FROM projects\n" +
@@ -313,9 +273,9 @@ public class PostgresDBStore implements DBStore {
   };
 
   @Override
-  public synchronized void setLastAccessedTime(String projectName, Timestamp time) {
+  public void setLastAccessedTime(String projectName, Timestamp time) {
     try (
-      Connection connection = getConnection();
+      Connection connection = pool.getConnection();
       PreparedStatement statement = connection.prepareStatement(
         "UPDATE projects\n" +
           "SET last_accessed = ?\n" +
@@ -387,68 +347,6 @@ public class PostgresDBStore implements DBStore {
       }
     } catch (Exception e) {
       throw new RuntimeException("Postgres query error", e);
-    }
-  }
-
-  public synchronized void takeLock(String projectName) {
-    Connection connection = getConnection();
-    try {
-      connection.setAutoCommit(true);
-      try (
-              PreparedStatement statement = connection.prepareStatement(
-                      "INSERT into projects (name, version_id) values (?, 0) ON CONFLICT DO NOTHING;"
-              )
-      ) {
-        statement.setString(1, projectName);
-        statement.execute();
-      }
-      try (Statement statement = connection.createStatement()) {
-        statement.execute("set lock_timeout to 59999;");
-      }
-      connection.setAutoCommit(false);
-      try (
-              PreparedStatement statement = connection.prepareStatement(
-                      "SELECT * from project" +
-                              " WHERE name = ?" +
-                              " FOR UPDATE;"
-              );
-      ) {
-        statement.setString(1, projectName);
-        statement.executeQuery();
-      }
-      return;
-    } catch (Exception e) {
-      throw new RuntimeException("Postgres query error while locking " + projectName, e);
-    }
-  }
-
-  public synchronized void releaseLock(String projectName) {
-    RequestEnd requestEnd = requestEndBox.get();
-    Connection connection = getConnection();
-    try {
-      if (requestEnd == RequestEnd.Commit) {
-        connection.commit();
-      } else if (requestEnd == RequestEnd.Rollback) {
-        connection.rollback();
-      } else {
-        throw new RuntimeException("[{}] Invalid request end: " + requestEnd.toString());
-      }
-      connection.setAutoCommit(true);
-      connection.close();
-    } catch (Exception e) {
-      throw new RuntimeException(e);
-    }
-  }
-
-  // TODO: not a string
-  @Override
-  public void setRequestEnd(String end) {
-    if ("commit".equals(end)) {
-      requestEndBox.set(RequestEnd.Commit);
-    } else if ("rollback".equals(end)) {
-      requestEndBox.set(RequestEnd.Rollback);
-    } else {
-      throw new RuntimeException("invalid request end: " + end);
     }
   }
 }
