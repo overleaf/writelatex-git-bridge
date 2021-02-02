@@ -2,6 +2,8 @@ package uk.ac.ic.wlgitbridge.bridge.db.postgres;
 
 import org.apache.commons.dbcp2.BasicDataSource;
 import org.postgresql.jdbc2.optional.ConnectionPool;
+import uk.ac.ic.wlgitbridge.bridge.context.ContextStore;
+import uk.ac.ic.wlgitbridge.bridge.context.ProjectContext;
 import uk.ac.ic.wlgitbridge.bridge.db.DBInitException;
 import uk.ac.ic.wlgitbridge.bridge.db.DBStore;
 import uk.ac.ic.wlgitbridge.bridge.db.ProjectState;
@@ -94,7 +96,9 @@ public class PostgresDBStore implements DBStore {
   @Override
   public void setLatestVersionForProject(String project, int versionID) {
     try (
-      Connection connection = pool.getConnection();
+      // Connection connection = pool.getConnection();
+      ProjectContext context = (PostgresProjectContext) ContextStore.Instance().GetContextForProject(project);
+      Connection connection = context.GetConnection();
       PreparedStatement statement = connection.prepareStatement(
         "INSERT INTO "
            + "projects (name, version_id, last_accessed) "
