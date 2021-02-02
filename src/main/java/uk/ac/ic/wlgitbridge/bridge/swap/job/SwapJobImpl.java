@@ -236,26 +236,24 @@ public class SwapJobImpl implements SwapJob {
      */
     @Override
     public void restore(String projName) throws IOException {
-        try (LockGuard __ = lock.lockGuard(projName)) {
-            try (InputStream zipped = swapStore.openDownloadStream(projName)) {
-                String compression = dbStore.getSwapCompression(projName);
-                if (compression == null) {
-                    throw new RuntimeException("Missing compression method during restore, should not happen");
-                }
-                if ("gzip".equals(compression)) {
-                  repoStore.ungzipProject(
-                    projName,
-                    zipped
-                  );
-                } else if ("bzip2".equals(compression)) {
-                  repoStore.unbzip2Project(
-                    projName,
-                    zipped
-                  );
-                }
-                swapStore.remove(projName);
-                dbStore.restore(projName);
+        try (InputStream zipped = swapStore.openDownloadStream(projName)) {
+            String compression = dbStore.getSwapCompression(projName);
+            if (compression == null) {
+                throw new RuntimeException("Missing compression method during restore, should not happen");
             }
+            if ("gzip".equals(compression)) {
+              repoStore.ungzipProject(
+                projName,
+                zipped
+              );
+            } else if ("bzip2".equals(compression)) {
+              repoStore.unbzip2Project(
+                projName,
+                zipped
+              );
+            }
+            swapStore.remove(projName);
+            dbStore.restore(projName);
         }
     }
 
