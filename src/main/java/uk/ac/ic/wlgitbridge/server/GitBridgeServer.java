@@ -9,7 +9,14 @@ import org.eclipse.jetty.servlet.ServletHolder;
 import uk.ac.ic.wlgitbridge.application.config.Config;
 import uk.ac.ic.wlgitbridge.application.jetty.NullLogger;
 import uk.ac.ic.wlgitbridge.bridge.Bridge;
+import uk.ac.ic.wlgitbridge.bridge.context.*;
 import uk.ac.ic.wlgitbridge.bridge.db.DBStore;
+import uk.ac.ic.wlgitbridge.bridge.db.DatabaseConfig;
+import uk.ac.ic.wlgitbridge.bridge.db.postgres.PostgresConfig;
+import uk.ac.ic.wlgitbridge.bridge.db.postgres.PostgresConnectionPool;
+import uk.ac.ic.wlgitbridge.bridge.db.postgres.PostgresDBStore;
+import uk.ac.ic.wlgitbridge.bridge.db.postgres.PostgresOptions;
+import uk.ac.ic.wlgitbridge.bridge.db.sqlite.SqliteDBStore;
 import uk.ac.ic.wlgitbridge.bridge.repo.FSGitRepoStore;
 import uk.ac.ic.wlgitbridge.bridge.repo.RepoStore;
 import uk.ac.ic.wlgitbridge.bridge.repo.RepoStoreConfig;
@@ -24,7 +31,6 @@ import uk.ac.ic.wlgitbridge.util.Util;
 import javax.servlet.DispatcherType;
 import javax.servlet.Filter;
 import javax.servlet.ServletException;
-import javax.xml.crypto.Data;
 import java.io.File;
 import java.net.BindException;
 import java.nio.file.Paths;
@@ -58,7 +64,34 @@ public class GitBridgeServer {
                 rootGitDirectoryPath,
                 config.getRepoStore().flatMap(RepoStoreConfig::getMaxFileSize)
         );
-        DBStore dbStore = DBStore.fromConfig(config.getDatabase(), repoStore);
+
+        // Database, Contexts, Lock system, etc
+        Optional<DatabaseConfig> databaseConfig = config.getDatabase();
+        DBStore dbStore;
+        ProjectContextFactory contextFactory;
+        if (
+            databaseConfig.isPresent() &&
+                databaseConfig.get().getDatabaseType() == DatabaseConfig.DatabaseType.Postgres
+        ) {
+            Log.info("Database: connect to postgres");
+            PostgresOptions options = ((PostgresConfig)databaseConfig.get()).getOptions();
+            PostgresConnectionPool pool = new PostgresConnectionPool(options);
+            dbStore = new PostgresDBStore(pool);
+            contextFactory = new PostgresProjectContextFactory(pool);
+        } else {
+            Log.info("Database: connect to sqlite");
+            dbStore = new SqliteDBStore(
+                    Paths.get(
+                            repoStore.getRootDirectory().getAbsolutePath()
+                    ).resolve(".wlgb").resolve("wlgb.db").toFile()
+            );
+            contextFactory = new GenericProjectContextFactory();
+        }
+        try {
+            ContextStore.initialize(contextFactory);
+        } catch (ContextStoreAlreadyInitialisedException e) {
+            throw new RuntimeException("Error setting up context store", e);
+        }
         SwapStore swapStore = SwapStore.fromConfig(config.getSwapStore());
         SnapshotApi snapshotApi = new NetSnapshotApi();
         bridge = Bridge.make(
