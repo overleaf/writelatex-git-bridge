@@ -1,23 +1,18 @@
 package uk.ac.ic.wlgitbridge.bridge.lock;
 
 /**
- * Project Lock class.
+ * A Lock on a Project.
  *
- * The locks should be re-entrant. For example, we are usually holding the lock
- * when a project must be restored, which tries to acquire the lock again.
+ * This does not implement the Lock interface, because we need
+ * to distinguish success from failure. These need to
+ * be handled differently when using our PostgresProjectLock.
+ *
+ * We implement AutoCloseable so we can play nice with
+ * the try-with-resources statement.
  */
-public interface ProjectLock {
-
-    void lockAll();
-
-    void lockForProject(String projectName);
-
-    void unlockForProject(String projectName);
-
-    /* RAII hahaha */
-    default LockGuard lockGuard(String projectName) {
-        lockForProject(projectName);
-        return () -> unlockForProject(projectName);
-    }
-
+public interface ProjectLock extends AutoCloseable {
+    void lock();
+    void unlock();
+    void close();
+    void success();
 }
