@@ -1,7 +1,6 @@
 package uk.ac.ic.wlgitbridge.bridge.swap.job;
 
 import uk.ac.ic.wlgitbridge.bridge.db.DBStore;
-import uk.ac.ic.wlgitbridge.bridge.lock.ProjectLock;
 import uk.ac.ic.wlgitbridge.bridge.repo.RepoStore;
 import uk.ac.ic.wlgitbridge.bridge.swap.store.SwapStore;
 
@@ -55,7 +54,6 @@ public interface SwapJob {
 
     static SwapJob fromConfig(
             Optional<SwapJobConfig> cfg,
-            ProjectLock lock,
             RepoStore repoStore,
             DBStore dbStore,
             SwapStore swapStore
@@ -63,7 +61,6 @@ public interface SwapJob {
         if (cfg.isPresent()) {
             return new SwapJobImpl(
                     cfg.get(),
-                    lock,
                     repoStore,
                     dbStore,
                     swapStore

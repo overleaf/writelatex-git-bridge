@@ -3,13 +3,12 @@ package uk.ac.ic.wlgitbridge.bridge;
 import com.google.api.client.auth.oauth2.Credential;
 import org.eclipse.jgit.errors.RepositoryNotFoundException;
 import uk.ac.ic.wlgitbridge.application.config.Config;
+import uk.ac.ic.wlgitbridge.bridge.context.ContextStore;
 import uk.ac.ic.wlgitbridge.bridge.db.DBStore;
 import uk.ac.ic.wlgitbridge.bridge.db.ProjectState;
 import uk.ac.ic.wlgitbridge.bridge.db.sqlite.SqliteDBStore;
 import uk.ac.ic.wlgitbridge.bridge.gc.GcJob;
 import uk.ac.ic.wlgitbridge.bridge.gc.GcJobImpl;
-import uk.ac.ic.wlgitbridge.bridge.lock.LockGuard;
-import uk.ac.ic.wlgitbridge.bridge.lock.ProjectLock;
 import uk.ac.ic.wlgitbridge.bridge.repo.*;
 import uk.ac.ic.wlgitbridge.bridge.resource.ResourceCache;
 import uk.ac.ic.wlgitbridge.bridge.resource.UrlResourceCache;
@@ -20,8 +19,8 @@ import uk.ac.ic.wlgitbridge.bridge.swap.job.SwapJob;
 import uk.ac.ic.wlgitbridge.bridge.swap.job.SwapJobImpl;
 import uk.ac.ic.wlgitbridge.bridge.swap.store.S3SwapStore;
 import uk.ac.ic.wlgitbridge.bridge.swap.store.SwapStore;
+import uk.ac.ic.wlgitbridge.bridge.util.Pair;
 import uk.ac.ic.wlgitbridge.data.CandidateSnapshot;
-import uk.ac.ic.wlgitbridge.data.ProjectLockImpl;
 import uk.ac.ic.wlgitbridge.data.filestore.GitDirectoryContents;
 import uk.ac.ic.wlgitbridge.data.filestore.RawDirectory;
 import uk.ac.ic.wlgitbridge.data.filestore.RawFile;
@@ -51,10 +50,11 @@ import java.io.IOException;
 import java.sql.Timestamp;
 import java.time.LocalDateTime;
 import java.util.*;
+import java.util.function.Function;
 
 /**
- * This is the heart of the Git Bridge. You plug in all the parts (project
- * lock, repo store, db store, swap store, snapshot api, resource cache and
+ * This is the heart of the Git Bridge. You plug in all the parts (
+ * repo store, db store, swap store, snapshot api, resource cache and
  * postback manager) is called by Git user requests and Overleaf postback
  * requests.
  *
@@ -78,13 +78,7 @@ import java.util.*;
  *
  * Follow these links to go "inward" (to the Git Bridge components):
  *
- * 1. The Project Lock, used to synchronise accesses to projects and shutdown
- *    the Git Bridge gracefully by preventing further lock acquiring.
- *
- *    @see ProjectLock - the interface used for the Project Lock
- *    @see ProjectLockImpl - the default concrete implementation
- *
- * 2. The Repo Store, used to provide repository objects.
+ * 1. The Repo Store, used to provide repository objects.
  *
  *    The default implementation uses Git on the file system.
  *
@@ -93,7 +87,7 @@ import java.util.*;
  *    @see ProjectRepo - an interface for an actual repo instance
  *    @see GitProjectRepo - the default concrete implementation
  *
- * 3. The DB Store, used to store persistent data such as the latest version
+ * 2. The DB Store, used to store persistent data such as the latest version
  *    of each project that we have (used for querying the Snapshot API), along
  *    with caching remote blobs.
  *
@@ -102,7 +96,7 @@ import java.util.*;
  *    @see DBStore - the interface for the DB store
  *    @see SqliteDBStore - the default concrete implementation
  *
- * 4. The Swap Store, used to swap projects to when the disk goes over a
+ * 3. The Swap Store, used to swap projects to when the disk goes over a
  *    certain data usage.
  *
  *    The default implementation tarbzips projects to/from Amazon S3.
@@ -110,19 +104,19 @@ import java.util.*;
  *    @see SwapStore - the interface for the Swap Store
  *    @see S3SwapStore - the default concrete implementation
  *
- * 5. The Swap Job, which performs the actual swapping on the swap store based
+ * 4. The Swap Job, which performs the actual swapping on the swap store based
  *    on various configuration options.
  *
  *    @see SwapJob - the interface for the Swap Job
  *    @see SwapJobImpl - the default concrete implementation
  *
- * 6. The Snapshot API, which provides data from the Overleaf app.
+ * 5. The Snapshot API, which provides data from the Overleaf app.
  *
  *    @see SnapshotApiFacade - wraps a concrete instance of the Snapshot API.
  *    @see SnapshotApi - the interface for the Snapshot API.
  *    @see NetSnapshotApi - the default concrete implementation
  *
- * 7. The Resource Cache, which provides the data for attachment resources from
+ * 6. The Resource Cache, which provides the data for attachment resources from
  *    URLs. It will generally fetch from the source on a cache miss.
  *
  *    The default implementation uses the DB Store to maintain a mapping from
@@ -131,7 +125,7 @@ import java.util.*;
  *    @see ResourceCache - the interface for the Resource Cache
  *    @see UrlResourceCache - the default concrete implementation
  *
- * 8. The Postback Manager, which keeps track of pending postbacks. It stores a
+ * 7. The Postback Manager, which keeps track of pending postbacks. It stores a
  *    mapping from project names to postback promises.
  *
  *    @see PostbackManager - the class
@@ -141,8 +135,6 @@ import java.util.*;
 public class Bridge {
 
     private final Config config;
-
-    private final ProjectLock lock;
 
     private final RepoStore repoStore;
     private final DBStore dbStore;
@@ -174,23 +166,18 @@ public class Bridge {
             SwapStore swapStore,
             SnapshotApi snapshotApi
     ) {
-        ProjectLock lock = new ProjectLockImpl((int threads) ->
-                Log.info("Waiting for " + threads + " projects...")
-        );
         return new Bridge(
                 config,
-                lock,
                 repoStore,
                 dbStore,
                 swapStore,
                 SwapJob.fromConfig(
                         config.getSwapJob(),
-                        lock,
                         repoStore,
                         dbStore,
                         swapStore
                 ),
-                new GcJobImpl(repoStore, lock),
+                new GcJobImpl(repoStore),
                 new SnapshotApiFacade(snapshotApi),
                 new UrlResourceCache(dbStore)
         );
@@ -200,7 +187,6 @@ public class Bridge {
      * Creates a bridge from all of its components, not just its configurable
      * parts. This is for substituting mock/stub components for testing.
      * It's also used by Bridge.make to actually construct the bridge.
-     * @param lock the {@link ProjectLock} to use
      * @param repoStore the {@link RepoStore} to use
      * @param dbStore the {@link DBStore} to use
      * @param swapStore the {@link SwapStore} to use
@@ -211,7 +197,6 @@ public class Bridge {
      */
     Bridge(
             Config config,
-            ProjectLock lock,
             RepoStore repoStore,
             DBStore dbStore,
             SwapStore swapStore,
@@ -221,7 +206,6 @@ public class Bridge {
             ResourceCache resourceCache
     ) {
         this.config = config;
-        this.lock = lock;
         this.repoStore = repoStore;
         this.dbStore = dbStore;
         this.swapStore = swapStore;
@@ -236,21 +220,21 @@ public class Bridge {
 
     /**
      * This performs the graceful shutdown of the Bridge, which is called by the
-     * shutdown hook. It acquires the project write lock, which prevents
+     * shutdown hook. It closes the ContextStore, which prevents
      * work being done for new projects (which acquire the read lock).
-     * Once it has the write lock, there are no readers left, so the git bridge
+     * Once this is done, there are no operations left, so the git bridge
      * can shut down gracefully.
      *
      * It is also used by the tests.
      */
-    void doShutdown() {
+    public void doShutdown() {
         Log.info("Shutdown received.");
         Log.info("Stopping SwapJob");
         swapJob.stop();
         Log.info("Stopping GcJob");
         gcJob.stop();
-        Log.info("Waiting for projects");
-        lock.lockAll();
+        Log.info("Stopping ContextStore");
+        ContextStore.getInstance().stop();
         Log.info("Bye");
     }
 
@@ -289,25 +273,33 @@ public class Bridge {
             if (f.getName().equals(".wlgb")) {
                 continue;
             }
-            String projName = f.getName();
-            try (LockGuard __ = lock.lockGuard(projName)) {
-                File dotGit = new File(f, ".git");
-                if (!dotGit.exists()) {
-                    Log.warn("Project: {} has no .git", projName);
-                    continue;
+            String projectName = f.getName();
+            Pair<Object, Exception> result = ContextStore.inContextWithLock(projectName, (context) -> {
+                try  {
+                    File dotGit = new File(f, ".git");
+                    if (!dotGit.exists()) {
+                        Log.warn("Project: {} has no .git", projectName);
+                        return new Pair<>(null, null);
+                    }
+                    ProjectState state = dbStore.getProjectState(projectName);
+                    if (state != ProjectState.NOT_PRESENT) {
+                        return new Pair<>(null, null);
+                    }
+                    Log.warn(
+                            "Project: {} not in swap_store, adding",
+                            projectName
+                    );
+                    dbStore.setLastAccessedTime(
+                            projectName,
+                            new Timestamp(dotGit.lastModified())
+                    );
+                    return new Pair<>(null, null);
+                } catch (Exception e) {
+                    return new Pair<>(null, e);
                 }
-                ProjectState state = dbStore.getProjectState(projName);
-                if (state != ProjectState.NOT_PRESENT) {
-                    continue;
-                }
-                Log.warn(
-                        "Project: {} not in swap_store, adding",
-                        projName
-                );
-                dbStore.setLastAccessedTime(
-                        projName,
-                        new Timestamp(dotGit.lastModified())
-                );
+            });
+            if (result.getRight() != null) {
+                throw new RuntimeException(result.getRight());
             }
         }
     }
@@ -326,15 +318,35 @@ public class Bridge {
             Optional<Credential> oauth2,
             String projectName
     ) throws IOException, GitUserException {
-        try (LockGuard __ = lock.lockGuard(projectName)) {
-            Optional<GetDocResult> maybeDoc = snapshotAPI.getDoc(oauth2, projectName);
-            if (!maybeDoc.isPresent()) {
-                throw new RepositoryNotFoundException(projectName);
+        Pair<ProjectRepo, Exception> result = ContextStore.inContextWithLock(projectName, (context) -> {
+            try  {
+                Optional<GetDocResult> maybeDoc = snapshotAPI.getDoc(oauth2, projectName);
+                if (!maybeDoc.isPresent()) {
+                    return new Pair<>(null, new RepositoryNotFoundException(projectName));
+                }
+                GetDocResult doc = maybeDoc.get();
+                Log.info("[{}] Updating repository", projectName);
+                ProjectRepo updatedRepo = getUpdatedRepoCritical(oauth2, projectName, doc);
+                return new Pair<>(updatedRepo, null);
+            } catch (Exception e) {
+                return new Pair<>(null, e);
             }
-            GetDocResult doc = maybeDoc.get();
-            Log.info("[{}] Updating repository", projectName);
-            return getUpdatedRepoCritical(oauth2, projectName, doc);
+        });
+        if (result.getRight() != null) {
+            Exception e = result.getRight();
+            if (e instanceof IOException) {
+                throw (IOException) e;
+            } else if (e instanceof GitUserException) {
+                throw (GitUserException) e;
+            } else {
+                throw new RuntimeException(e);
+            }
         }
+        if (result.getLeft() == null) {
+            throw new RuntimeException("No repo returned from context/lock operation");
+        }
+        ProjectRepo repo = result.getLeft();
+        return repo;
     }
 
     /**
@@ -376,35 +388,54 @@ public class Bridge {
             String migratedFromID = doc.getMigratedFromID();
             if (migratedFromID != null) {
                 Log.info("[{}] Has a migratedFromId: {}", projectName, migratedFromID);
-                try (LockGuard __ = lock.lockGuard(migratedFromID)) {
-                    ProjectState sourceState = dbStore.getProjectState(migratedFromID);
-                    switch (sourceState) {
-                        case NOT_PRESENT:
-                            // Normal init-repo
-                            Log.info("[{}] migrated-from project not present, proceed as normal",
-                                 projectName
-                            );
-                            repo = repoStore.initRepo(projectName);
-                            break;
-                        case SWAPPED:
-                            // Swap back and then copy
-                            swapJob.restore(migratedFromID);
-                            /* Fallthrough */
-                        default:
-                            // Copy data, and set version to zero
-                            Log.info("[{}] Init from other project: {}",
-                                projectName,
-                                migratedFromID
-                            );
-                            repo = repoStore.initRepoFromExisting(projectName, migratedFromID);
-                            dbStore.setLatestVersionForProject(migratedFromID, 0);
-                            dbStore.setLastAccessedTime(
-                                    migratedFromID,
-                                    Timestamp.valueOf(LocalDateTime.now())
-
-                            );
+                Pair<ProjectRepo, Exception> result = ContextStore.inContextWithLock(migratedFromID, (context) -> {
+                    try  {
+                        ProjectState sourceState = dbStore.getProjectState(migratedFromID);
+                        Pair<ProjectRepo, Exception> migratedRepo;
+                        switch (sourceState) {
+                            case NOT_PRESENT:
+                                // Normal init-repo
+                                Log.info("[{}] migrated-from project not present, proceed as normal",
+                                        projectName
+                                );
+                                migratedRepo = new Pair<>(repoStore.initRepo(projectName), null);
+                                break;
+                            case SWAPPED:
+                                // Swap back and then copy
+                                swapJob.restore(migratedFromID);
+                                /* Fallthrough */
+                            default:
+                                // Copy data, and set version to zero
+                                Log.info("[{}] Init from other project: {}",
+                                        projectName,
+                                        migratedFromID
+                                );
+                                migratedRepo = new Pair<>(repoStore.initRepoFromExisting(projectName, migratedFromID), null);
+                                dbStore.setLatestVersionForProject(migratedFromID, 0);
+                                dbStore.setLastAccessedTime(
+                                        migratedFromID,
+                                        Timestamp.valueOf(LocalDateTime.now())
+                                );
+                        }
+                        return migratedRepo;
+                    } catch (Exception e) {
+                        return new Pair<>(null, e);
+                    }
+                });
+                if (result.getRight() != null) {
+                    Exception e = result.getRight();
+                    if (e instanceof IOException) {
+                        throw (IOException) e;
+                    } else if (e instanceof GitUserException) {
+                        throw (GitUserException) e;
+                    } else {
+                        throw new RuntimeException(e);
                     }
                 }
+                if (result.getLeft() == null) {
+                    throw new RuntimeException("No repo returned from context/lock operation");
+                }
+                repo = result.getLeft();
                 break;
             } else {
                 repo = repoStore.initRepo(projectName);
@@ -451,32 +482,45 @@ public class Bridge {
             RawDirectory oldDirectoryContents,
             String hostname
     ) throws SnapshotPostException, IOException, MissingRepositoryException, ForbiddenException, GitUserException {
-        try (LockGuard __ = lock.lockGuard(projectName)) {
-            pushCritical(
-                    oauth2,
-                    projectName,
-                    directoryContents,
-                    oldDirectoryContents
-            );
-        } catch (SevereSnapshotPostException e) {
-            Log.warn(
-                    "[" + projectName + "] Failed to put to Overleaf",
-                    e
-            );
-            throw e;
-        } catch (SnapshotPostException e) {
-            /* Stack trace should be printed further up */
-            Log.warn(
-                    "[{}] Exception when waiting for postback: {}",
-                    projectName,
-                    e.getClass().getSimpleName()
-            );
-            throw e;
-        } catch (IOException e) {
-            Log.warn("[{}] IOException on put: {}", projectName, e);
-            throw e;
-        }
 
+
+        Pair<Object, Exception> result = ContextStore.inContextWithLock(projectName, (context) -> {
+            try  {
+                pushCritical(
+                        oauth2,
+                        projectName,
+                        directoryContents,
+                        oldDirectoryContents
+                );
+                return new Pair<>(null, null);
+            } catch (Exception e) {
+                return new Pair<>(null, e);
+            }
+        });
+        if (result.getRight() != null) {
+            Exception e = result.getRight();
+            if (e instanceof SevereSnapshotPostException) {
+                Log.warn(
+                        "[" + projectName + "] Failed to put to Overleaf",
+                        e
+                );
+                throw (SevereSnapshotPostException) e;
+            } else if (e instanceof SnapshotPostException) {
+                /* Stack trace should be printed further up */
+                Log.warn(
+                        "[{}] Exception when waiting for postback: {}",
+                        projectName,
+                        e.getClass().getSimpleName()
+                );
+                throw (SnapshotPostException) e;
+            } else if (e instanceof IOException) {
+                Log.warn("[{}] IOException on put: {}", projectName, e);
+                throw (IOException) e;
+            } else {
+                Log.warn("[{}] Exception on put: {}", projectName, e);
+                throw new RuntimeException(e);
+            }
+        }
         gcJob.queueForGc(projectName);
     }
 

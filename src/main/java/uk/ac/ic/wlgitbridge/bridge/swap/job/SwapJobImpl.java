@@ -1,11 +1,13 @@
 package uk.ac.ic.wlgitbridge.bridge.swap.job;
 
 import com.google.api.client.repackaged.com.google.common.base.Preconditions;
+import uk.ac.ic.wlgitbridge.bridge.context.ContextStore;
+import uk.ac.ic.wlgitbridge.bridge.context.ProjectContext;
 import uk.ac.ic.wlgitbridge.bridge.db.DBStore;
-import uk.ac.ic.wlgitbridge.bridge.lock.LockGuard;
 import uk.ac.ic.wlgitbridge.bridge.lock.ProjectLock;
 import uk.ac.ic.wlgitbridge.bridge.repo.RepoStore;
 import uk.ac.ic.wlgitbridge.bridge.swap.store.SwapStore;
+import uk.ac.ic.wlgitbridge.bridge.util.Pair;
 import uk.ac.ic.wlgitbridge.util.Log;
 import uk.ac.ic.wlgitbridge.util.TimerUtils;
 
@@ -30,7 +32,6 @@ public class SwapJobImpl implements SwapJob {
     long highWatermarkBytes;
     Duration interval;
 
-    private final ProjectLock lock;
     private final RepoStore repoStore;
     private final DBStore dbStore;
     private final SwapStore swapStore;
@@ -42,7 +43,6 @@ public class SwapJobImpl implements SwapJob {
 
     public SwapJobImpl(
             SwapJobConfig cfg,
-            ProjectLock lock,
             RepoStore repoStore,
             DBStore dbStore,
             SwapStore swapStore
@@ -53,7 +53,6 @@ public class SwapJobImpl implements SwapJob {
                 GiB * cfg.getHighGiB(),
                 Duration.ofMillis(cfg.getIntervalMillis()),
                 cfg.getCompressionMethod(),
-                lock,
                 repoStore,
                 dbStore,
                 swapStore
@@ -66,7 +65,6 @@ public class SwapJobImpl implements SwapJob {
             long highWatermarkBytes,
             Duration interval,
             CompressionMethod method,
-            ProjectLock lock,
             RepoStore repoStore,
             DBStore dbStore,
             SwapStore swapStore
@@ -76,7 +74,6 @@ public class SwapJobImpl implements SwapJob {
         this.highWatermarkBytes = highWatermarkBytes;
         this.interval = interval;
         this.compressionMethod = method;
-        this.lock = lock;
         this.repoStore = repoStore;
         this.dbStore = dbStore;
         this.swapStore = swapStore;
@@ -139,11 +136,19 @@ public class SwapJobImpl implements SwapJob {
                 );
                 break;
             }
-            // get the oldest project and try to swap it
+            // get the oldest project, take the lock, and try to swap it
             String projectName = dbStore.getOldestUnswappedProject();
-            try {
-                evict(projectName);
-            } catch (Exception e) {
+
+            Pair<Object, Exception> result = ContextStore.inContextWithLock(projectName, (context) -> {
+                try  {
+                    evict(projectName);
+                    return new Pair<>(null, null);
+                } catch (Exception e) {
+                    return new Pair<>(null, e);
+                }
+            });
+            if (result.getRight() != null) {
+                Exception e = result.getRight();
                 Log.warn("[{}] Exception while swapping, mark project and move on", projectName, e);
                 // NOTE: this is something of a hack. If a project fails to swap we get stuck in a
                 // loop where `dbStore.getOldestUnswappedProject()` gives the same failing project over and over again,
@@ -151,8 +156,8 @@ public class SwapJobImpl implements SwapJob {
                 // non-candidate for swapping. Ideally we should be checking the logs for these log events and fixing
                 // whatever is wrong with the project
                 dbStore.setLastAccessedTime(
-                    projectName,
-                    Timestamp.valueOf(LocalDateTime.now())
+                        projectName,
+                        Timestamp.valueOf(LocalDateTime.now())
                 );
                 exceptionProjectNames.add(projectName);
             }
@@ -180,12 +185,13 @@ public class SwapJobImpl implements SwapJob {
     /**
      * @see SwapJob#evict(String) for high-level description.
      *
-     * 1. Acquires the project lock.
-     * 2. Gets a bz2 stream and size of a project from the repo store, or throws
-     * 3. Uploads the bz2 stream and size to the projName in the swapStore.
-     * 4. Sets the last accessed time in the dbStore to null, which makes our
+     * Assumed to be done while the lock is taken.
+     *
+     * 1. Gets a bz2 stream and size of a project from the repo store, or throws
+     * 2. Uploads the bz2 stream and size to the projName in the swapStore.
+     * 3. Sets the last accessed time in the dbStore to null, which makes our
      *    state SWAPPED
-     * 5. Removes the project from the repo store.
+     * 4. Removes the project from the repo store.
      * @param projName
      * @throws IOException
      */
@@ -193,22 +199,20 @@ public class SwapJobImpl implements SwapJob {
     public void evict(String projName) throws IOException {
         Preconditions.checkNotNull(projName, "projName was null");
         Log.info("Evicting project: {}", projName);
-        try (LockGuard __ = lock.lockGuard(projName)) {
-            try {
-                repoStore.gcProject(projName);
-            } catch (Exception e) {
-                Log.error("[{}] Exception while running gc on project: {}", projName, e);
+        try {
+            repoStore.gcProject(projName);
+        } catch (Exception e) {
+            Log.error("[{}] Exception while running gc on project: {}", projName, e);
+        }
+        long[] sizePtr = new long[1];
+        try (InputStream blob = getBlobStream(projName, sizePtr)) {
+            swapStore.upload(projName, blob, sizePtr[0]);
+            String compression = SwapJob.compressionMethodAsString(compressionMethod);
+            if (compression == null) {
+                throw new RuntimeException("invalid compression method, should not happen");
             }
-            long[] sizePtr = new long[1];
-            try (InputStream blob = getBlobStream(projName, sizePtr)) {
-                swapStore.upload(projName, blob, sizePtr[0]);
-                String compression = SwapJob.compressionMethodAsString(compressionMethod);
-                if (compression == null) {
-                  throw new RuntimeException("invalid compression method, should not happen");
-                }
-                dbStore.swap(projName, compression);
-                repoStore.remove(projName);
-            }
+            dbStore.swap(projName, compression);
+            repoStore.remove(projName);
         }
         Log.info("Evicted project: {}", projName);
     }
@@ -226,36 +230,35 @@ public class SwapJobImpl implements SwapJob {
     /**
      * @see SwapJob#restore(String) for high-level description.
      *
-     * 1. Acquires the project lock.
-     * 2. Gets a bz2 stream for the project from the swapStore.
-     * 3. Fully downloads and places the bz2 stream back in the repo store.
-     * 4. Sets the last accessed time in the dbStore to now, which makes our
+     * Assumed to be done while the lock is taken
+     *
+     * 1. Gets a bz2 stream for the project from the swapStore.
+     * 2. Fully downloads and places the bz2 stream back in the repo store.
+     * 3. Sets the last accessed time in the dbStore to now, which makes our
      *    state PRESENT and the last project to be evicted.
      * @param projName
      * @throws IOException
      */
     @Override
     public void restore(String projName) throws IOException {
-        try (LockGuard __ = lock.lockGuard(projName)) {
-            try (InputStream zipped = swapStore.openDownloadStream(projName)) {
-                String compression = dbStore.getSwapCompression(projName);
-                if (compression == null) {
-                    throw new RuntimeException("Missing compression method during restore, should not happen");
-                }
-                if ("gzip".equals(compression)) {
-                  repoStore.ungzipProject(
-                    projName,
-                    zipped
-                  );
-                } else if ("bzip2".equals(compression)) {
-                  repoStore.unbzip2Project(
-                    projName,
-                    zipped
-                  );
-                }
-                swapStore.remove(projName);
-                dbStore.restore(projName);
+        try (InputStream zipped = swapStore.openDownloadStream(projName)) {
+            String compression = dbStore.getSwapCompression(projName);
+            if (compression == null) {
+                throw new RuntimeException("Missing compression method during restore, should not happen");
             }
+            if ("gzip".equals(compression)) {
+              repoStore.ungzipProject(
+                projName,
+                zipped
+              );
+            } else if ("bzip2".equals(compression)) {
+              repoStore.unbzip2Project(
+                projName,
+                zipped
+              );
+            }
+            swapStore.remove(projName);
+            dbStore.restore(projName);
         }
     }
 

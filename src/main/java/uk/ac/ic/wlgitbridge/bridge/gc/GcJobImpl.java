@@ -1,9 +1,11 @@
 package uk.ac.ic.wlgitbridge.bridge.gc;
 
-import uk.ac.ic.wlgitbridge.bridge.lock.LockGuard;
+import uk.ac.ic.wlgitbridge.bridge.context.ContextStore;
+import uk.ac.ic.wlgitbridge.bridge.context.ProjectContext;
 import uk.ac.ic.wlgitbridge.bridge.lock.ProjectLock;
 import uk.ac.ic.wlgitbridge.bridge.repo.ProjectRepo;
 import uk.ac.ic.wlgitbridge.bridge.repo.RepoStore;
+import uk.ac.ic.wlgitbridge.bridge.util.Pair;
 import uk.ac.ic.wlgitbridge.util.Log;
 import uk.ac.ic.wlgitbridge.util.TimerUtils;
 
@@ -23,7 +25,6 @@ import java.util.concurrent.locks.ReentrantLock;
 public class GcJobImpl implements GcJob {
 
     private final RepoStore repoStore;
-    private final ProjectLock locks;
 
     private final long intervalMs;
     private final Timer timer;
@@ -40,9 +41,8 @@ public class GcJobImpl implements GcJob {
     private final Lock jobWaitersLock;
     private final List<CompletableFuture<Void>> jobWaiters;
 
-    public GcJobImpl(RepoStore repoStore, ProjectLock locks, long intervalMs) {
+    public GcJobImpl(RepoStore repoStore, long intervalMs) {
         this.repoStore = repoStore;
-        this.locks = locks;
         this.intervalMs = intervalMs;
         timer = new Timer();
         gcQueue = Collections.newSetFromMap(new ConcurrentHashMap<>());
@@ -52,10 +52,9 @@ public class GcJobImpl implements GcJob {
         jobWaiters = new ArrayList<>();
     }
 
-    public GcJobImpl(RepoStore repoStore, ProjectLock locks) {
+    public GcJobImpl(RepoStore repoStore) {
         this(
                 repoStore,
-                locks,
                 TimeUnit.MILLISECONDS.convert(1, TimeUnit.HOURS)
         );
     }
@@ -118,14 +117,22 @@ public class GcJobImpl implements GcJob {
         ) {
             String proj = it.next();
             Log.info("[{}] Running GC job on project", proj);
-            try (LockGuard __ = locks.lockGuard(proj)) {
-                try {
-                    ProjectRepo repo = repoStore.getExistingRepo(proj);
-                    repo.runGC();
-                    repo.deleteIncomingPacks();
-                } catch (IOException e) {
-                    Log.info("[{}] Failed to GC project", proj);
+            Pair<Object, Exception> result = ContextStore.inContextWithLock(proj, (context) -> {
+                try  {
+                    try {
+                        ProjectRepo repo = repoStore.getExistingRepo(proj);
+                        repo.runGC();
+                        repo.deleteIncomingPacks();
+                    } catch (IOException e) {
+                        Log.info("[{}] Failed to GC project", proj);
+                    }
+                    return new Pair<>(null, null);
+                } catch (Exception e) {
+                    return new Pair<>(null, e);
                 }
+            });
+            if (result.getRight() != null) {
+                throw new RuntimeException(result.getRight());
             }
         }
         Log.info("GC job finished, num gcs: {}", numGcs);
