@@ -49,22 +49,4 @@ public interface DBStore {
      * @param time the time, or null if the project is to be swapped
      */
     void setLastAccessedTime(String projectName, Timestamp time);
-
-    static DBStore fromConfig(Optional<DatabaseConfig> maybeConfig, RepoStore repoStore) {
-      if (
-        maybeConfig.isPresent() &&
-        maybeConfig.get().getDatabaseType() == DatabaseConfig.DatabaseType.Postgres
-      ) {
-        Log.info("Database: connect to postgres");
-        PostgresOptions options = ((PostgresConfig)maybeConfig.get()).getOptions();
-        return new PostgresDBStore(options);
-      } else {
-        Log.info("Database: connect to sqlite");
-        return new SqliteDBStore(
-          Paths.get(
-            repoStore.getRootDirectory().getAbsolutePath()
-          ).resolve(".wlgb").resolve("wlgb.db").toFile()
-        );
-      }
-    }
 }
