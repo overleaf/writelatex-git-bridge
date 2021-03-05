@@ -3,10 +3,11 @@ package uk.ac.ic.wlgitbridge.bridge;
 import org.junit.Before;
 import org.junit.Test;
 import uk.ac.ic.wlgitbridge.application.config.Config;
+import uk.ac.ic.wlgitbridge.bridge.context.ContextStore;
+import uk.ac.ic.wlgitbridge.bridge.context.GenericProjectContextFactory;
 import uk.ac.ic.wlgitbridge.bridge.db.DBStore;
 import uk.ac.ic.wlgitbridge.bridge.db.ProjectState;
 import uk.ac.ic.wlgitbridge.bridge.gc.GcJob;
-import uk.ac.ic.wlgitbridge.bridge.lock.ProjectLock;
 import uk.ac.ic.wlgitbridge.bridge.repo.ProjectRepo;
 import uk.ac.ic.wlgitbridge.bridge.repo.RepoStore;
 import uk.ac.ic.wlgitbridge.bridge.resource.ResourceCache;
@@ -32,7 +33,6 @@ public class BridgeTest {
 
     private Bridge bridge;
 
-    private ProjectLock lock;
     private RepoStore repoStore;
     private DBStore dbStore;
     private SwapStore swapStore;
@@ -43,7 +43,12 @@ public class BridgeTest {
 
     @Before
     public void setup() {
-        lock = mock(ProjectLock.class);
+        try {
+            ContextStore.__Reset__();
+            ContextStore.initialize(new GenericProjectContextFactory());
+        } catch (Throwable t) {
+            throw new RuntimeException("Error initializing context store in test", t);
+        }
         repoStore = mock(RepoStore.class);
         dbStore = mock(DBStore.class);
         swapStore = mock(SwapStore.class);
@@ -65,7 +70,6 @@ public class BridgeTest {
                         null,
                         null,
                         null),
-                lock,
                 repoStore,
                 dbStore,
                 swapStore,
@@ -74,16 +78,6 @@ public class BridgeTest {
                 snapshotAPI,
                 resourceCache
         );
-    }
-
-    @Test
-    public void shutdownStopsSwapAndGcJobs() {
-        bridge.startBackgroundJobs();
-        verify(swapJob).start();
-        verify(gcJob).start();
-        bridge.doShutdown();
-        verify(swapJob).stop();
-        verify(gcJob).stop();
     }
 
     @Test
@@ -107,4 +101,13 @@ public class BridgeTest {
         verify(dbStore).setLastAccessedTime(eq("asdf"), any());
     }
 
+    @Test
+    public void shutdownStopsSwapAndGcJobs() {
+        bridge.startBackgroundJobs();
+        verify(swapJob).start();
+        verify(gcJob).start();
+        bridge.doShutdown();
+        verify(swapJob).stop();
+        verify(gcJob).stop();
+    }
 }

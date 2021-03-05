@@ -4,11 +4,11 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.mockito.stubbing.OngoingStubbing;
-import uk.ac.ic.wlgitbridge.bridge.lock.LockGuard;
+import uk.ac.ic.wlgitbridge.bridge.context.*;
 import uk.ac.ic.wlgitbridge.bridge.lock.ProjectLock;
 import uk.ac.ic.wlgitbridge.bridge.repo.ProjectRepo;
 import uk.ac.ic.wlgitbridge.bridge.repo.RepoStore;
-import uk.ac.ic.wlgitbridge.data.ProjectLockImpl;
+import uk.ac.ic.wlgitbridge.bridge.util.Pair;
 
 import java.io.IOException;
 import java.util.List;
@@ -26,14 +26,17 @@ public class GcJobImplTest {
 
     RepoStore repoStore = mock(RepoStore.class);
 
-    ProjectLock locks;
-
     GcJobImpl gcJob;
 
     @Before
     public void setup() {
-        locks = new ProjectLockImpl();
-        gcJob = new GcJobImpl(repoStore, locks, 5);
+        try {
+            ContextStore.__Reset__();
+            ContextStore.initialize(new GenericProjectContextFactory());
+        } catch (ContextStoreAlreadyInitialisedException e) {
+            throw new RuntimeException(e);
+        }
+        gcJob = new GcJobImpl(repoStore, 50);
     }
 
     @After
@@ -106,12 +109,21 @@ public class GcJobImplTest {
         gcJob.onPostGc(gcJob::stop);
         gcJob.queueForGc("a");
         CompletableFuture<Void> fut = gcJob.waitForRun();
-        try (LockGuard __ = locks.lockGuard("a")) {
-            gcJob.start();
-            for (int i = 0; i < 50; ++i) {
-                assertFalse(fut.isDone());
-                Thread.sleep(1);
+
+        Pair<Object, Exception> result = ContextStore.inContextWithLock("a", (context) -> {
+            try {
+                gcJob.start();
+                for (int i = 0; i < 50; ++i) {
+                    assertFalse(fut.isDone());
+                    Thread.sleep(1);
+                }
+                return new Pair<>(null, null);
+            } catch (Exception e) {
+                return new Pair<>(null, e);
             }
+        });
+        if (result.getRight() != null) {
+            throw new RuntimeException(result.getRight());
         }
         /* Now that we've released the lock, fut should complete */
         fut.join();

@@ -8,21 +8,19 @@ import org.apache.http.HttpResponse;
 import org.apache.http.ParseException;
 import org.apache.http.client.ClientProtocolException;
 import org.apache.http.client.HttpClient;
-import org.apache.http.client.methods.CloseableHttpResponse;
 import org.apache.http.client.methods.HttpGet;
 import org.apache.http.client.methods.HttpPost;
 import org.apache.http.client.methods.HttpHead;
 import org.apache.http.impl.client.HttpClients;
 import org.apache.http.HttpEntity;
 import org.apache.http.util.EntityUtils;
-import org.apache.http.ParseException;
 
 import org.asynchttpclient.*;
 import org.eclipse.jgit.api.errors.GitAPIException;
 import org.junit.*;
 import org.junit.rules.TemporaryFolder;
-import uk.ac.ic.wlgitbridge.bridge.db.DBInitException;
-import uk.ac.ic.wlgitbridge.bridge.db.postgres.PostgresDBStore;
+import org.junit.runners.MethodSorters;
+import uk.ac.ic.wlgitbridge.bridge.context.ContextStore;
 import uk.ac.ic.wlgitbridge.bridge.swap.job.SwapJobConfig;
 import uk.ac.ic.wlgitbridge.snapshot.servermock.server.MockSnapshotServer;
 import uk.ac.ic.wlgitbridge.snapshot.servermock.state.SnapshotAPIState;
@@ -49,6 +47,8 @@ import static org.junit.Assert.*;
 /**
  * Created by Winston on 11/01/15.
  */
+
+@FixMethodOrder(MethodSorters.NAME_ASCENDING)
 public class WLGitBridgeIntegrationTest {
 
     private Runtime runtime = Runtime.getRuntime();
@@ -159,12 +159,14 @@ public class WLGitBridgeIntegrationTest {
     @Rule
     public TemporaryFolder folder = new TemporaryFolder();
 
+    public static Connection connection;
+
     private MockSnapshotServer server;
     private GitBridgeApp wlgb;
     private File dir;
     // set env-var "TEST_DB_MODE", either "postgres" or "sqlite"
     private static String databaseMode;
-    private Map<String, String> postgresConfig = new HashMap<String, String>() {{
+    private static Map<String, String> postgresConfig = new HashMap<String, String>() {{
       put("url", "jdbc:postgresql://postgres_v2/gitbridge_test");
       put("username", "sharelatex");
       put("password", "sharelatex");
@@ -172,13 +174,6 @@ public class WLGitBridgeIntegrationTest {
 
     private void resetPostgresDatabase() throws Exception {
       try {
-        Class.forName("org.postgresql.Driver");
-        Connection connection = DriverManager
-          .getConnection(
-            postgresConfig.get("url"),
-            postgresConfig.get("username"),
-            postgresConfig.get("password")
-          );
         Statement statement = connection.createStatement();
         statement.execute("delete from url_index_store;");
         statement.execute("delete from projects;");
@@ -193,10 +188,25 @@ public class WLGitBridgeIntegrationTest {
     public static void before() throws Exception {
       databaseMode = System.getenv("TEST_DB_MODE");
       Log.info("Test database mode: " + databaseMode);
-    }
+      if ("postgres".equals(databaseMode)) {
+        try {
+          Class.forName("org.postgresql.Driver");
+          connection = DriverManager
+            .getConnection(
+              postgresConfig.get("url"),
+              postgresConfig.get("username"),
+              postgresConfig.get("password")
+            );
+        } catch (Exception e) {
+          Log.error("Error connecting to Postgres: {}", e.getMessage());
+          throw e;
+        }
+      }
+  }
 
     @Before
     public void setUp() throws Exception {
+        ContextStore.__Reset__();
       dir = folder.newFolder();
       if ("postgres".equals(databaseMode)) {
         resetPostgresDatabase();
@@ -471,7 +481,7 @@ public class WLGitBridgeIntegrationTest {
         gitAdd(testprojDir);
         gitCommit(testprojDir, "push");
         gitPush(testprojDir);
-        }
+    }
 
     private static final String EXPECTED_OUT_PUSH_OUT_OF_DATE_FIRST =
       "error: failed to push some refs to 'http://127.0.0.1:33867/testproj.git'\n" +
@@ -692,8 +702,7 @@ public class WLGitBridgeIntegrationTest {
         url = "http://127.0.0.1:" + gitBridgePort + "/api/notavalidproject/push.tex?key=notavalidkey";
         response = asyncHttpClient().prepareGet(url).execute().get();
         assertEquals(404, response.getStatusCode());
-
-        }
+    }
 
     @Test
     public void wlgbCanSwapProjects(
@@ -711,18 +720,18 @@ public class WLGitBridgeIntegrationTest {
         File rootGitDir = new File(wlgb.config.getRootGitDirectory());
         File testProj1ServerDir = new File(rootGitDir, "testproj1");
         File testProj2ServerDir = new File(rootGitDir, "testproj2");
-        File testProj1Dir = gitClone("testproj1", 33874, dir);
+        File testProj1Dir = gitClone("testproj1", 33874, dir);   // clone 1
         assertTrue(testProj1ServerDir.exists());
         assertFalse(testProj2ServerDir.exists());
-        gitClone("testproj2", 33874, dir);
-        while (testProj1ServerDir.exists());
+        gitClone("testproj2", 33874, dir);                       // clone 2
+        while (testProj1ServerDir.exists());                     // wait for 1 to disappear (swap)
         assertFalse(testProj1ServerDir.exists());
-        assertTrue(testProj2ServerDir.exists());
+        assertTrue(testProj2ServerDir.exists());                 // only 1 exists
         FileUtils.deleteDirectory(testProj1Dir);
-        gitClone("testproj1", 33874, dir);
-        while (testProj2ServerDir.exists());
+        gitClone("testproj1", 33874, dir);                       // clone 1
+        while (testProj2ServerDir.exists());                     // wait for 2 to disappear (swap)
         assertTrue(testProj1ServerDir.exists());
-        assertFalse(testProj2ServerDir.exists());
+        assertFalse(testProj2ServerDir.exists());                // only 2 exists
     }
 
     private static final List<String> EXPECTED_OUT_PUSH_SUBMODULE = Arrays.asList(
@@ -1146,7 +1155,7 @@ public class WLGitBridgeIntegrationTest {
             "\"options\": {\"url\": \"" + postgresConfig.get("url") + "\", " +
             "\"username\": \""+ postgresConfig.get("username") +"\", " +
             "\"password\": \""+ postgresConfig.get("password") +"\", " +
-            "\"poolInitialSize\": 2, \"poolMaxTotal\": 8, \"poolMaxWaitMillis\": 1000}}";
+            "\"poolInitialSize\": 4, \"poolMaxTotal\": 8, \"poolMaxWaitMillis\": 1000}}";
         }
         cfgStr += "}\n";
         writer.print(cfgStr);

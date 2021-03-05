@@ -7,13 +7,11 @@ import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 import uk.ac.ic.wlgitbridge.bridge.db.DBStore;
 import uk.ac.ic.wlgitbridge.bridge.db.sqlite.SqliteDBStore;
-import uk.ac.ic.wlgitbridge.bridge.lock.ProjectLock;
 import uk.ac.ic.wlgitbridge.bridge.repo.FSGitRepoStore;
 import uk.ac.ic.wlgitbridge.bridge.repo.FSGitRepoStoreTest;
 import uk.ac.ic.wlgitbridge.bridge.repo.RepoStore;
 import uk.ac.ic.wlgitbridge.bridge.swap.store.InMemorySwapStore;
 import uk.ac.ic.wlgitbridge.bridge.swap.store.SwapStore;
-import uk.ac.ic.wlgitbridge.data.ProjectLockImpl;
 
 import java.io.IOException;
 import java.sql.Timestamp;
@@ -31,7 +29,6 @@ public class SwapJobImplTest {
 
     private SwapJobImpl swapJob;
 
-    private ProjectLock lock;
     private RepoStore repoStore;
     private DBStore dbStore;
     private SwapStore swapStore;
@@ -40,7 +37,6 @@ public class SwapJobImplTest {
     public void setup() throws IOException {
         TemporaryFolder tmpFolder = new TemporaryFolder();
         tmpFolder.create();
-        lock = new ProjectLockImpl();
         repoStore = new FSGitRepoStore(
                 FSGitRepoStoreTest.makeTempRepoDir(
                         tmpFolder,
@@ -69,7 +65,6 @@ public class SwapJobImplTest {
                 30000,
                 Duration.ofMillis(100),
                 SwapJob.CompressionMethod.Bzip2,
-                lock,
                 repoStore,
                 dbStore,
                 swapStore
@@ -142,7 +137,6 @@ public class SwapJobImplTest {
                 30000,
                 Duration.ofMillis(100),
                 SwapJob.CompressionMethod.Gzip,
-                lock,
                 repoStore,
                 dbStore,
                 swapStore
