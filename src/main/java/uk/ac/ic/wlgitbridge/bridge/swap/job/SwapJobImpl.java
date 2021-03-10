@@ -138,17 +138,12 @@ public class SwapJobImpl implements SwapJob {
             }
             // get the oldest project, take the lock, and try to swap it
             String projectName = dbStore.getOldestUnswappedProject();
-
-            Pair<Object, Exception> result = ContextStore.inContextWithLock(projectName, (context) -> {
-                try  {
+            try {
+                ContextStore.inContextWithLock(projectName, (context) -> {
                     evict(projectName);
-                    return new Pair<>(null, null);
-                } catch (Exception e) {
-                    return new Pair<>(null, e);
-                }
-            });
-            if (result.getRight() != null) {
-                Exception e = result.getRight();
+                    return null;
+                });
+            } catch (Exception e) {
                 Log.warn("[{}] Exception while swapping, mark project and move on", projectName, e);
                 // NOTE: this is something of a hack. If a project fails to swap we get stuck in a
                 // loop where `dbStore.getOldestUnswappedProject()` gives the same failing project over and over again,

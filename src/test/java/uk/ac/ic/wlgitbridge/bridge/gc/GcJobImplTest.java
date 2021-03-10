@@ -110,20 +110,17 @@ public class GcJobImplTest {
         gcJob.queueForGc("a");
         CompletableFuture<Void> fut = gcJob.waitForRun();
 
-        Pair<Object, Exception> result = ContextStore.inContextWithLock("a", (context) -> {
-            try {
+        try {
+            ContextStore.inContextWithLock("a", (context) -> {
                 gcJob.start();
                 for (int i = 0; i < 50; ++i) {
                     assertFalse(fut.isDone());
                     Thread.sleep(1);
                 }
-                return new Pair<>(null, null);
-            } catch (Exception e) {
-                return new Pair<>(null, e);
-            }
-        });
-        if (result.getRight() != null) {
-            throw new RuntimeException(result.getRight());
+                return null;
+            });
+        } catch (Exception e) {
+            throw new RuntimeException(e);
         }
         /* Now that we've released the lock, fut should complete */
         fut.join();

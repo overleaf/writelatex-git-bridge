@@ -2,6 +2,7 @@ package uk.ac.ic.wlgitbridge.bridge.context;
 
 import uk.ac.ic.wlgitbridge.bridge.lock.ProjectLock;
 import uk.ac.ic.wlgitbridge.bridge.util.Pair;
+import uk.ac.ic.wlgitbridge.bridge.util.ThrowingFunction;
 import uk.ac.ic.wlgitbridge.util.Log;
 import java.util.HashMap;
 import java.util.function.Function;
@@ -86,10 +87,10 @@ public class ContextStore {
    * @param <R> : The return type of the overall expression
    * @return Pair<R, Exception>
    */
-  public static <R> Pair<R, Exception> inContextWithLock(
-      String projectName,
-      Function<ProjectContext, Pair<R, Exception>> f
-  ) {
+  public static <R> R inContextWithLock(
+          String projectName,
+          ThrowingFunction<ProjectContext, R, Exception> f
+  ) throws Exception {
     ContextStore instance = ContextStore.getInstance();
     instance.ensureThreadLocalStorage();
     if (instance.localContexts.get().get(projectName) != null) {
@@ -98,12 +99,12 @@ public class ContextStore {
     ProjectContext context = instance.getContextForProject(projectName);
     try (ProjectLock lock = context.getLock()) {
       lock.lock();
-      Pair<R, Exception> result = f.apply(context);
+      R result = f.apply(context);
       lock.success();
       return result;
     } catch (Exception e) {
-      Log.error("[{}] Exception in context with lock", projectName, e);
-      return new Pair(null, e);
+      Log.error("[{}] Exception in context with lock: {}", projectName, e.getMessage());
+      throw e;
     } finally {
       context.close();
       instance.localContexts.get().remove(projectName);

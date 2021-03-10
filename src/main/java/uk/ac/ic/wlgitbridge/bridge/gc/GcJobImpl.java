@@ -117,8 +117,8 @@ public class GcJobImpl implements GcJob {
         ) {
             String proj = it.next();
             Log.info("[{}] Running GC job on project", proj);
-            Pair<Object, Exception> result = ContextStore.inContextWithLock(proj, (context) -> {
-                try  {
+            try {
+                ContextStore.inContextWithLock(proj, (context) -> {
                     try {
                         ProjectRepo repo = repoStore.getExistingRepo(proj);
                         repo.runGC();
@@ -126,13 +126,10 @@ public class GcJobImpl implements GcJob {
                     } catch (IOException e) {
                         Log.info("[{}] Failed to GC project", proj);
                     }
-                    return new Pair<>(null, null);
-                } catch (Exception e) {
-                    return new Pair<>(null, e);
-                }
-            });
-            if (result.getRight() != null) {
-                throw new RuntimeException(result.getRight());
+                    return null;
+                });
+            } catch (Exception e) {
+                throw new RuntimeException(e);
             }
         }
         Log.info("GC job finished, num gcs: {}", numGcs);

@@ -19,7 +19,6 @@ import uk.ac.ic.wlgitbridge.bridge.swap.job.SwapJob;
 import uk.ac.ic.wlgitbridge.bridge.swap.job.SwapJobImpl;
 import uk.ac.ic.wlgitbridge.bridge.swap.store.S3SwapStore;
 import uk.ac.ic.wlgitbridge.bridge.swap.store.SwapStore;
-import uk.ac.ic.wlgitbridge.bridge.util.Pair;
 import uk.ac.ic.wlgitbridge.data.CandidateSnapshot;
 import uk.ac.ic.wlgitbridge.data.filestore.GitDirectoryContents;
 import uk.ac.ic.wlgitbridge.data.filestore.RawDirectory;
@@ -274,16 +273,16 @@ public class Bridge {
                 continue;
             }
             String projectName = f.getName();
-            Pair<Object, Exception> result = ContextStore.inContextWithLock(projectName, (context) -> {
-                try  {
+            try {
+                ContextStore.inContextWithLock(projectName, (context) -> {
                     File dotGit = new File(f, ".git");
                     if (!dotGit.exists()) {
                         Log.warn("Project: {} has no .git", projectName);
-                        return new Pair<>(null, null);
+                        return null;
                     }
                     ProjectState state = dbStore.getProjectState(projectName);
                     if (state != ProjectState.NOT_PRESENT) {
-                        return new Pair<>(null, null);
+                        return null;
                     }
                     Log.warn(
                             "Project: {} not in swap_store, adding",
@@ -293,13 +292,10 @@ public class Bridge {
                             projectName,
                             new Timestamp(dotGit.lastModified())
                     );
-                    return new Pair<>(null, null);
-                } catch (Exception e) {
-                    return new Pair<>(null, e);
-                }
-            });
-            if (result.getRight() != null) {
-                throw new RuntimeException(result.getRight());
+                    return null;
+                });
+            } catch (Exception e) {
+                Log.error("[{}] Exception while checking DB: {}", projectName, e.getMessage());
             }
         }
     }
@@ -318,34 +314,23 @@ public class Bridge {
             Optional<Credential> oauth2,
             String projectName
     ) throws IOException, GitUserException {
-        Pair<ProjectRepo, Exception> result = ContextStore.inContextWithLock(projectName, (context) -> {
-            try  {
+        ProjectRepo repo;
+        try {
+            repo = ContextStore.inContextWithLock(projectName, (context) -> {
                 Optional<GetDocResult> maybeDoc = snapshotAPI.getDoc(oauth2, projectName);
                 if (!maybeDoc.isPresent()) {
-                    return new Pair<>(null, new RepositoryNotFoundException(projectName));
+                    throw new RepositoryNotFoundException(projectName);
                 }
                 GetDocResult doc = maybeDoc.get();
                 Log.info("[{}] Updating repository", projectName);
                 ProjectRepo updatedRepo = getUpdatedRepoCritical(oauth2, projectName, doc);
-                return new Pair<>(updatedRepo, null);
-            } catch (Exception e) {
-                return new Pair<>(null, e);
-            }
-        });
-        if (result.getRight() != null) {
-            Exception e = result.getRight();
-            if (e instanceof IOException) {
-                throw (IOException) e;
-            } else if (e instanceof GitUserException) {
-                throw (GitUserException) e;
-            } else {
-                throw new RuntimeException(e);
-            }
+                return updatedRepo;
+            });
+        } catch (IOException | GitUserException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new RuntimeException("Exception while getting updated repo", e);
         }
-        if (result.getLeft() == null) {
-            throw new RuntimeException("No repo returned from context/lock operation");
-        }
-        ProjectRepo repo = result.getLeft();
         return repo;
     }
 
@@ -388,17 +373,18 @@ public class Bridge {
             String migratedFromID = doc.getMigratedFromID();
             if (migratedFromID != null) {
                 Log.info("[{}] Has a migratedFromId: {}", projectName, migratedFromID);
-                Pair<ProjectRepo, Exception> result = ContextStore.inContextWithLock(migratedFromID, (context) -> {
-                    try  {
+                ProjectRepo migratedRepo;
+                try {
+                    migratedRepo = ContextStore.inContextWithLock(migratedFromID, (context) -> {
                         ProjectState sourceState = dbStore.getProjectState(migratedFromID);
-                        Pair<ProjectRepo, Exception> migratedRepo;
+                        ProjectRepo result;
                         switch (sourceState) {
                             case NOT_PRESENT:
                                 // Normal init-repo
                                 Log.info("[{}] migrated-from project not present, proceed as normal",
                                         projectName
                                 );
-                                migratedRepo = new Pair<>(repoStore.initRepo(projectName), null);
+                                result = repoStore.initRepo(projectName);
                                 break;
                             case SWAPPED:
                                 // Swap back and then copy
@@ -410,32 +396,21 @@ public class Bridge {
                                         projectName,
                                         migratedFromID
                                 );
-                                migratedRepo = new Pair<>(repoStore.initRepoFromExisting(projectName, migratedFromID), null);
+                                result = repoStore.initRepoFromExisting(projectName, migratedFromID);
                                 dbStore.setLatestVersionForProject(migratedFromID, 0);
                                 dbStore.setLastAccessedTime(
                                         migratedFromID,
                                         Timestamp.valueOf(LocalDateTime.now())
                                 );
                         }
-                        return migratedRepo;
-                    } catch (Exception e) {
-                        return new Pair<>(null, e);
-                    }
-                });
-                if (result.getRight() != null) {
-                    Exception e = result.getRight();
-                    if (e instanceof IOException) {
-                        throw (IOException) e;
-                    } else if (e instanceof GitUserException) {
-                        throw (GitUserException) e;
-                    } else {
-                        throw new RuntimeException(e);
-                    }
+                        return result;
+                    });
+                } catch (IOException | GitUserException e) {
+                    throw e;
+                } catch (Exception e) {
+                    throw new RuntimeException(e);
                 }
-                if (result.getLeft() == null) {
-                    throw new RuntimeException("No repo returned from context/lock operation");
-                }
-                repo = result.getLeft();
+                repo = migratedRepo;
                 break;
             } else {
                 repo = repoStore.initRepo(projectName);
@@ -482,44 +457,36 @@ public class Bridge {
             RawDirectory oldDirectoryContents,
             String hostname
     ) throws SnapshotPostException, IOException, MissingRepositoryException, ForbiddenException, GitUserException {
-
-
-        Pair<Object, Exception> result = ContextStore.inContextWithLock(projectName, (context) -> {
-            try  {
+        try {
+            ContextStore.inContextWithLock(projectName, (context) -> {
                 pushCritical(
                         oauth2,
                         projectName,
                         directoryContents,
                         oldDirectoryContents
                 );
-                return new Pair<>(null, null);
-            } catch (Exception e) {
-                return new Pair<>(null, e);
-            }
-        });
-        if (result.getRight() != null) {
-            Exception e = result.getRight();
-            if (e instanceof SevereSnapshotPostException) {
-                Log.warn(
-                        "[" + projectName + "] Failed to put to Overleaf",
-                        e
-                );
-                throw (SevereSnapshotPostException) e;
-            } else if (e instanceof SnapshotPostException) {
-                /* Stack trace should be printed further up */
-                Log.warn(
-                        "[{}] Exception when waiting for postback: {}",
-                        projectName,
-                        e.getClass().getSimpleName()
-                );
-                throw (SnapshotPostException) e;
-            } else if (e instanceof IOException) {
-                Log.warn("[{}] IOException on put: {}", projectName, e);
-                throw (IOException) e;
-            } else {
-                Log.warn("[{}] Exception on put: {}", projectName, e);
-                throw new RuntimeException(e);
-            }
+                return null;
+            });
+        } catch (SevereSnapshotPostException e) {
+            Log.warn(
+                    "[" + projectName + "] Failed to put to Overleaf",
+                    e
+            );
+            throw e;
+        } catch (SnapshotPostException e) {
+            /* Stack trace should be printed further up */
+            Log.warn(
+                    "[{}] Exception when waiting for postback: {}",
+                    projectName,
+                    e.getClass().getSimpleName()
+            );
+            throw e;
+        } catch (IOException e) {
+            Log.warn("[{}] IOException on put: {}", projectName, e);
+            throw e;
+        } catch (Exception e) {
+            Log.warn("[{}] Exception on put: {}", projectName, e);
+            throw new RuntimeException(e);
         }
         gcJob.queueForGc(projectName);
     }
