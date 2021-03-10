@@ -130,13 +130,13 @@ public class ContextStore {
     }
   }
 
-  private synchronized ProjectContext getFromThreadLocalStorage(String projectName) {
+  private ProjectContext getFromThreadLocalStorage(String projectName) {
     this.ensureThreadLocalStorage();
     HashMap<String, ProjectContext> contextMap = this.localContexts.get();
     return contextMap.get(projectName);
   }
 
-  private synchronized void storeInThreadLocalStorage(String projectName, ProjectContext context) {
+  private void storeInThreadLocalStorage(String projectName, ProjectContext context) {
     this.ensureThreadLocalStorage();
     HashMap<String, ProjectContext> contextMap = this.localContexts.get();
     contextMap.put(projectName, context);
