@@ -75,6 +75,7 @@ public class InProcessLock implements ProjectLock {
   @Override
   public void finalize() {
     Log.debug("[{}] Finalize InProcessLock", this.projectName);
+    this.unlock();
     decrementLock(this.projectName);
   }
 

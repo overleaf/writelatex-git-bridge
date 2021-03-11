@@ -109,6 +109,16 @@ public class PostgresLock implements ProjectLock {
         }
     }
 
+    /**
+     * Finalizer, runs before PostgresLock object is
+     * garbage collected.
+     */
+    @Override
+    public void finalize() {
+        Log.debug("[{}] Finalize PostgresLock", this.projectName);
+        this.unlock();
+    }
+
     @Override
     public void close() {
         this.unlock();
