@@ -19,22 +19,25 @@ import org.apache.http.ParseException;
 
 import org.asynchttpclient.*;
 import org.eclipse.jgit.api.errors.GitAPIException;
-import org.junit.After;
-import org.junit.Before;
-import org.junit.Rule;
-import org.junit.Test;
+import org.junit.*;
 import org.junit.rules.TemporaryFolder;
+import uk.ac.ic.wlgitbridge.bridge.db.DBInitException;
+import uk.ac.ic.wlgitbridge.bridge.db.postgres.PostgresDBStore;
 import uk.ac.ic.wlgitbridge.bridge.swap.job.SwapJobConfig;
 import uk.ac.ic.wlgitbridge.snapshot.servermock.server.MockSnapshotServer;
 import uk.ac.ic.wlgitbridge.snapshot.servermock.state.SnapshotAPIState;
 import uk.ac.ic.wlgitbridge.snapshot.servermock.state.SnapshotAPIStateBuilder;
 import uk.ac.ic.wlgitbridge.snapshot.servermock.util.FileUtil;
+import uk.ac.ic.wlgitbridge.util.Log;
 import uk.ac.ic.wlgitbridge.util.Util;
 
 import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.Statement;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
@@ -159,10 +162,45 @@ public class WLGitBridgeIntegrationTest {
     private MockSnapshotServer server;
     private GitBridgeApp wlgb;
     private File dir;
+    // set env-var "TEST_DB_MODE", either "postgres" or "sqlite"
+    private static String databaseMode;
+    private Map<String, String> postgresConfig = new HashMap<String, String>() {{
+      put("url", "jdbc:postgresql://postgres_v2/gitbridge_test");
+      put("username", "sharelatex");
+      put("password", "sharelatex");
+    }};
+
+    private void resetPostgresDatabase() throws Exception {
+      try {
+        Class.forName("org.postgresql.Driver");
+        Connection connection = DriverManager
+          .getConnection(
+            postgresConfig.get("url"),
+            postgresConfig.get("username"),
+            postgresConfig.get("password")
+          );
+        Statement statement = connection.createStatement();
+        statement.execute("delete from url_index_store;");
+        statement.execute("delete from projects;");
+        statement.close();
+      } catch (Exception e) {
+        Log.error("Error connecting to Postgres: {}", e.getMessage());
+        throw e;
+      }
+    }
+
+  @BeforeClass
+    public static void before() throws Exception {
+      databaseMode = System.getenv("TEST_DB_MODE");
+      Log.info("Test database mode: " + databaseMode);
+    }
 
     @Before
     public void setUp() throws Exception {
-        dir = folder.newFolder();
+      dir = folder.newFolder();
+      if ("postgres".equals(databaseMode)) {
+        resetPostgresDatabase();
+      }
     }
 
     @After
@@ -1100,6 +1138,13 @@ public class WLGitBridgeIntegrationTest {
                     swapCfg.getIntervalMillis() +
                     "\n" +
                     "    }\n";
+        }
+        if ("postgres".equals(databaseMode)) {
+          cfgStr += ", \"database\": {\"type\": \"postgres\", " +
+            "\"options\": {\"url\": \"" + postgresConfig.get("url") + "\", " +
+            "\"username\": \""+ postgresConfig.get("username") +"\", " +
+            "\"password\": \""+ postgresConfig.get("password") +"\", " +
+            "\"poolInitialSize\": 2, \"poolMaxTotal\": 8, \"poolMaxWaitMillis\": 1000}}";
         }
         cfgStr += "}\n";
         writer.print(cfgStr);

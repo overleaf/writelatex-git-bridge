@@ -44,6 +44,7 @@ To be run from the dev-environment:
 **Clean**:
 `bin/run git-bridge make clean`
 
+
 ### Installation
 
 Install dependencies:
@@ -61,6 +62,26 @@ Create a config file according to the format below.
 Run `mvn package` to build, test, and package it into a jar at `target/writelatex-git-bridge-1.0-SNAPSHOT-jar-with-dependencies.jar`.
 
 Use `java -jar <path_to_jar> <path_to_config_file>` to run the server.
+
+
+### Create Postgres Database and Tables
+
+From the dev-environment, run:
+
+``` sh
+$ bin/gitbridge-setup-db
+$ bin/gitbridge-setup-tables
+```
+
+See `create-tables.sql` for the relevant SQL.
+
+Run the following to set up the test database:
+
+``` sh
+$ bin/gitbridge-setup-db --test
+$ bin/gitbridge-setup-tables --test
+```
+
 
 ## Runtime Configuration
 

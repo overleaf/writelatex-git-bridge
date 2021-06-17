@@ -4,6 +4,10 @@ import com.google.gson.Gson;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import uk.ac.ic.wlgitbridge.application.exception.ConfigFileException;
+import uk.ac.ic.wlgitbridge.bridge.db.DatabaseConfig;
+import uk.ac.ic.wlgitbridge.bridge.db.postgres.PostgresConfig;
+import uk.ac.ic.wlgitbridge.bridge.db.postgres.PostgresOptions;
+import uk.ac.ic.wlgitbridge.bridge.db.sqlite.SqliteConfig;
 import uk.ac.ic.wlgitbridge.bridge.repo.RepoStoreConfig;
 import uk.ac.ic.wlgitbridge.bridge.swap.job.SwapJobConfig;
 import uk.ac.ic.wlgitbridge.bridge.swap.store.SwapStoreConfig;
@@ -21,7 +25,12 @@ import java.util.Optional;
  */
 public class Config implements JSONSource {
 
+
     static Config asSanitised(Config config) {
+        DatabaseConfig sanitizedDatabaseConfig = null;
+        if (null != config.database) {
+          sanitizedDatabaseConfig = config.database.asSanitized();
+        }
         return new Config(
                 config.port,
                 config.rootGitDirectory,
@@ -31,7 +40,8 @@ public class Config implements JSONSource {
                 Oauth2.asSanitised(config.oauth2),
                 config.repoStore,
                 SwapStoreConfig.sanitisedCopy(config.swapStore),
-                config.swapJob
+                config.swapJob,
+                sanitizedDatabaseConfig
         );
     }
 
@@ -48,6 +58,8 @@ public class Config implements JSONSource {
     private SwapStoreConfig swapStore;
     @Nullable
     private SwapJobConfig swapJob;
+    @Nullable
+    private DatabaseConfig database;
 
     public Config(
             String configFilePath
@@ -69,7 +81,8 @@ public class Config implements JSONSource {
             Oauth2 oauth2,
             RepoStoreConfig repoStore,
             SwapStoreConfig swapStore,
-            SwapJobConfig swapJob
+            SwapJobConfig swapJob,
+            DatabaseConfig database
     ) {
         this.port = port;
         this.rootGitDirectory = rootGitDirectory;
@@ -80,6 +93,7 @@ public class Config implements JSONSource {
         this.repoStore = repoStore;
         this.swapStore = swapStore;
         this.swapJob = swapJob;
+        this.database = database;
     }
 
     @Override
@@ -114,6 +128,22 @@ public class Config implements JSONSource {
                 configObject.get("swapJob"),
                 SwapJobConfig.class
         );
+
+        JsonObject databaseElement = configObject.getAsJsonObject("database");
+        if (null != databaseElement) {
+          String databaseType = databaseElement.get("type").getAsString();
+          if ("postgres".equals(databaseType)) {
+            PostgresOptions postgresOptions = new Gson().fromJson(
+              databaseElement.get("options"),
+              PostgresOptions.class
+            );
+            database = new PostgresConfig(postgresOptions);
+          } else {
+            database = new SqliteConfig();
+          }
+        } else {
+          database = null;
+        }
     }
 
     public String getSanitisedString() {
@@ -161,6 +191,10 @@ public class Config implements JSONSource {
 
     public Optional<SwapJobConfig> getSwapJob() {
         return Optional.ofNullable(swapJob);
+    }
+
+    public Optional<DatabaseConfig> getDatabase() {
+      return Optional.ofNullable(database);
     }
 
     private JsonElement getElement(JsonObject configObject, String name) {

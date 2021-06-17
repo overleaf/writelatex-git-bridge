@@ -10,7 +10,6 @@ import uk.ac.ic.wlgitbridge.application.config.Config;
 import uk.ac.ic.wlgitbridge.application.jetty.NullLogger;
 import uk.ac.ic.wlgitbridge.bridge.Bridge;
 import uk.ac.ic.wlgitbridge.bridge.db.DBStore;
-import uk.ac.ic.wlgitbridge.bridge.db.sqlite.SqliteDBStore;
 import uk.ac.ic.wlgitbridge.bridge.repo.FSGitRepoStore;
 import uk.ac.ic.wlgitbridge.bridge.repo.RepoStore;
 import uk.ac.ic.wlgitbridge.bridge.repo.RepoStoreConfig;
@@ -25,10 +24,12 @@ import uk.ac.ic.wlgitbridge.util.Util;
 import javax.servlet.DispatcherType;
 import javax.servlet.Filter;
 import javax.servlet.ServletException;
+import javax.xml.crypto.Data;
 import java.io.File;
 import java.net.BindException;
 import java.nio.file.Paths;
 import java.util.EnumSet;
+import java.util.Optional;
 
 /**
  * Created by Winston on 02/11/14.
@@ -57,11 +58,7 @@ public class GitBridgeServer {
                 rootGitDirectoryPath,
                 config.getRepoStore().flatMap(RepoStoreConfig::getMaxFileSize)
         );
-        DBStore dbStore = new SqliteDBStore(
-                Paths.get(
-                        repoStore.getRootDirectory().getAbsolutePath()
-                ).resolve(".wlgb").resolve("wlgb.db").toFile()
-        );
+        DBStore dbStore = DBStore.fromConfig(config.getDatabase(), repoStore);
         SwapStore swapStore = SwapStore.fromConfig(config.getSwapStore());
         SnapshotApi snapshotApi = new NetSnapshotApi();
         bridge = Bridge.make(
